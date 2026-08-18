@@ -1,0 +1,23 @@
+# Rust
+/target/
+src-tauri/target/
+src-tauri/gen/schemas/
+
+# Node / React
+node_modules/
+dist/
+dist-ssr/
+*.local
+
+# 日志与系统缓存
+*.log
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# 说明：.scratch/ 是本地 issue tracker 的载体（docs/agents/issue-tracker.md），
+# 作为项目资产入库跟踪，不要加入忽略清单。

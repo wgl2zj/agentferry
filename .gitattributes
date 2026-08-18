@@ -1,0 +1,12 @@
+# 三平台项目：统一 LF 行尾，避免 Windows/macOS/Linux 混用 CRLF
+* text=auto eol=lf
+
+# 二进制资源不做行尾转换
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.icns binary
+*.woff binary
+*.woff2 binary

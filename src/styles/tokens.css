@@ -1,0 +1,84 @@
+/*
+ * 设计令牌唯一来源（浅色系）。
+ * 规则见 .rules/UI_DESIGN.md：业务样式只允许引用本文件变量，
+ * 禁止新增原始十六进制/rgb()/hsl() 颜色值。
+ * 状态语义固定五类：中性、进行中(info)、成功、警告、危险。
+ */
+:root {
+  /* ---- 表面与背景 ---- */
+  --color-bg-page: #f6f8fb; /* 页面底色 */
+  --color-bg-surface: #ffffff; /* 卡片/浮层表面 */
+  --color-bg-subtle: #eef2f7; /* 次级底色（分组头、悬停底） */
+  --color-bg-hover: #f0f4fa; /* 列表行/按钮悬停底 */
+
+  /* ---- 边框 ---- */
+  --color-border: #d8e0ea;
+  --color-border-strong: #b7c4d4;
+
+  /* ---- 文字 ---- */
+  --color-text-primary: #1a2533; /* 主文字，对白底约 15:1 */
+  --color-text-secondary: #44536b; /* 次文字，对白底约 7.5:1 */
+  --color-text-muted: #5d6f85; /* 辅助文字，对白底约 5.4:1 */
+  --color-text-inverse: #ffffff; /* 深色底上的文字 */
+
+  /* ---- 品牌（主操作） ---- */
+  --color-brand: #2f6fed; /* 主操作蓝，白字对白底 4.6:1 */
+  --color-brand-hover: #2459c8;
+  --color-brand-active: #1d4aa8;
+  --color-brand-subtle: #e8f0fe; /* 主操作浅底（选中态、标签底） */
+  --color-brand-border: #b8cff8;
+
+  /* ---- 状态：进行中（info） ---- */
+  --color-info: #2f6fed;
+  --color-info-subtle: #e8f0fe;
+  --color-info-border: #b8cff8;
+
+  /* ---- 状态：成功 ---- */
+  --color-success: #157347;
+  --color-success-subtle: #e6f6ef;
+  --color-success-border: #a9dcc3;
+
+  /* ---- 状态：警告 ---- */
+  --color-warning: #8a5a00; /* 警告文字用深棕，避免黄底白字低对比 */
+  --color-warning-strong: #b9770e;
+  --color-warning-subtle: #fff7e0;
+  --color-warning-border: #eedaa8;
+
+  /* ---- 状态：危险 ---- */
+  --color-danger: #c02e33;
+  --color-danger-hover: #a52429;
+  --color-danger-subtle: #fbeaea;
+  --color-danger-border: #efb6b8;
+
+  /* ---- 焦点 ---- */
+  --color-focus-ring: #7aa7f8;
+
+  /* ---- 间距（固定档位） ---- */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+
+  /* ---- 圆角 ---- */
+  --radius-control: 6px; /* 控件圆角 */
+  --radius-card: 12px; /* 卡片/浮层圆角 */
+
+  /* ---- 阴影（两档） ---- */
+  --shadow-card: 0 1px 3px rgba(26, 37, 51, 0.08), 0 1px 2px rgba(26, 37, 51, 0.04);
+  --shadow-overlay: 0 8px 24px rgba(26, 37, 51, 0.16), 0 2px 6px rgba(26, 37, 51, 0.08);
+
+  /* ---- 尺寸 ---- */
+  --control-height: 44px; /* 普通控件最小高度 */
+  --control-height-dense: 32px; /* 密集行操作最小高度 */
+
+  /* ---- 字体 ---- */
+  --font-sans: "Segoe UI", "Microsoft YaHei", "PingFang SC", system-ui, sans-serif;
+  --font-mono: "Cascadia Code", Consolas, "JetBrains Mono", monospace;
+
+  /* ---- 动效 ---- */
+  --motion-duration-fast: 150ms;
+  --motion-duration-base: 200ms;
+  --motion-ease: cubic-bezier(0.2, 0.8, 0.3, 1);
+}
