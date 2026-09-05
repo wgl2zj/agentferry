@@ -2,7 +2,7 @@
 // 全部命令集中注册于唯一 ipcMain.handle 装配；长任务为异步实现（不冻结主进程），
 // 进度经 "progress" 事件按 50ms 节流汇报（引擎回调次数不变，首末必发）。
 
-import { app, BrowserWindow, dialog, ipcMain } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, Menu } from "electron";
 import path from "node:path";
 import * as commands from "./commands";
 import { toAppError } from "./engine/error";
@@ -151,6 +151,8 @@ function registerCommands(): void {
 }
 
 app.whenReady().then(() => {
+  // 与 Tauri 版一致：不设应用菜单栏（去掉 Electron 默认的英文 File/Edit/View 菜单）
+  Menu.setApplicationMenu(null);
   registerCommands();
   mainWindow = createWindow();
   app.on("activate", () => {
