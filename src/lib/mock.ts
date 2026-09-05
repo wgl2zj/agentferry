@@ -1,16 +1,18 @@
 // 浏览器演示模式 Mock 层 + 组件统一使用的 mock-aware 调用封装。
-// 真实 Tauri 环境（window.__TAURI_INTERNALS__ 存在）：apiCall 直通 ipc.call、
+// 桌面真实环境（预加载桥 window.agentferry 存在）：apiCall 直通 ipc.call、
 // useProgress 直通后端 progress 事件，行为与生产完全一致；
-// 纯浏览器（无 Tauri 后端）：返回内置演示数据，并按 ~2 秒节奏模拟进度事件，
+// 纯浏览器（无桥）：返回内置演示数据，并按 ~2 秒节奏模拟进度事件，
 // 供开发预览与截图验收使用。组件不得绕过本模块直接 invoke/listen。
 //
 // 契约红线：下方三份类别表（MOCK_ZCODE_CATEGORIES / MOCK_CODEX_CATEGORIES /
-// MOCK_CLAUDE_CATEGORIES）必须与 src-tauri/src/profile/ 下 zcode.rs、codex.rs、
-// claude.rs 逐行一致（id/display_name/tier/strategy/pack_warning），
-// 由 src/lib/profileContract.test.ts 静态锁定（含 token 警告文案逐字断言）。
-import { listen } from "@tauri-apps/api/event";
-import { open as openDialog } from "@tauri-apps/plugin-dialog";
+// MOCK_CLAUDE_CATEGORIES）直接派生自引擎档案数据（electron/engine/profile/ 下
+// zcode.ts、codex.ts、claude.ts，单一事实来源，与主进程 list_profiles 输出同源），
+// 由 src/lib/profileContract.test.ts 锁定（含 token 警告文案逐字断言）。
 import { useEffect, useRef } from "react";
+import { codexProfile } from "../../electron/engine/profile/codex";
+import { claudeProfile } from "../../electron/engine/profile/claude";
+import { strategyStr, tierStr, type AssetCategory } from "../../electron/engine/profile/types";
+import { zcodeProfile } from "../../electron/engine/profile/zcode";
 import {
   call,
   COMMANDS,
@@ -30,8 +32,8 @@ import {
   type Settings,
 } from "./ipc";
 
-/** 是否处于浏览器演示模式（无 Tauri 后端）。模块加载时判定一次，运行期不变。 */
-export const isMock = !("__TAURI_INTERNALS__" in window);
+/** 是否处于浏览器演示模式（无桌面桥）。模块加载时判定一次，运行期不变。 */
+export const isMock = !window.agentferry;
 
 /** 测试环境（vitest jsdom）下把演示节奏压缩到毫秒级，避免拖慢组件测试。
  *  浏览器演示可用 ?mocktick=毫秒 调节奏（如截图验收需放慢进度）。 */
@@ -43,7 +45,7 @@ const tickParam =
 const TICK = IS_TEST ? 5 : tickParam !== null ? Number(tickParam) : 700;
 
 // ---------------------------------------------------------------------------
-// 进度事件桥：mock 模式用本地发射器，真实模式用 Tauri listen。
+// 进度事件桥：mock 模式用本地发射器，真实模式用桌面桥 listen。
 // ---------------------------------------------------------------------------
 
 type ProgressHandler = (payload: ProgressPayload) => void;
@@ -55,7 +57,7 @@ function emitProgress(payload: ProgressPayload): void {
 
 /**
  * mock-aware 的进度事件 Hook：组件订阅后端 "progress" 事件的唯一入口。
- * 与 ipc.ts 的 useBackendEvent 同语义，但在无后端环境下自动切换到本地发射器。
+ * 与 ipc.ts 的 useBackendEvent 同语义，但在无桥环境下自动切换到本地发射器。
  */
 export function useProgress(handler: ProgressHandler): void {
   const ref = useRef(handler);
@@ -68,19 +70,11 @@ export function useProgress(handler: ProgressHandler): void {
         progressHandlers.delete(h);
       };
     }
-    let unlisten: (() => void) | undefined;
-    let disposed = false;
-    listen<ProgressPayload>("progress", (e) => ref.current(e.payload))
-      .then((fn) => {
-        if (disposed) fn();
-        else unlisten = fn;
-      })
-      .catch(() => {
-        // 极端兜底（如事件插件未注册）：静默降级，不影响主流程。
-      });
+    const dispose = window.agentferry!.listen("progress", (e) =>
+      ref.current(e.payload as ProgressPayload),
+    );
     return () => {
-      disposed = true;
-      unlisten?.();
+      dispose();
     };
   }, []);
 }
@@ -95,75 +89,34 @@ const MOCK_PACKAGE = "D:\\迁移包\\zcode-迁移包-20260817.zam";
 // pickDirectory 演示返回 D:\迁移包，使「浏览→出现未保存修改」的演示闭环可复现。
 let mockSettings: Settings = { default_output_dir: "C:\\Users\\demo\\Downloads" };
 
-/**
- * ZCode 档案类别表（与 src-tauri/src/profile/zcode.rs 逐行一致；
- * id 行格式固定为 `id: "xxx"`，契约测试按此静态解析，改动需同步后端）。
- */
-export const MOCK_ZCODE_CATEGORIES: CategoryInfo[] = [
-  // ---- 推荐档：纯资产 ----
-  { id: "global_rules", display_name: "全局规则（AGENTS.md）", description: "跨项目生效的 agent 行为规则", tier: "recommended", strategy: "copy", pack_warning: null },
-  { id: "skills", display_name: "技能（skills/）", description: "已安装的全部技能", tier: "recommended", strategy: "copy", pack_warning: null },
-  { id: "commands", display_name: "自定义命令（commands/）", description: "斜杠命令定义", tier: "recommended", strategy: "copy", pack_warning: null },
-  { id: "agent_defs", display_name: "子代理定义（agents/）", description: "自定义子智能体定义", tier: "recommended", strategy: "copy", pack_warning: null },
-  { id: "memories", display_name: "记忆库（cli/memories/）", description: "各项目的持久记忆", tier: "recommended", strategy: "copy", pack_warning: null },
-  { id: "main_config", display_name: "主配置（cli/config.json）", description: "含 MCP 命令行等本机绝对路径，需路径适配", tier: "recommended", strategy: "copy_text_path_adapt", pack_warning: null },
-  { id: "v2_config", display_name: "v2 配置（v2/config.json）", description: "v2 状态类配置，可能含本机路径", tier: "recommended", strategy: "copy_text_path_adapt", pack_warning: null },
-  { id: "plugin_manifests", display_name: "插件清单（installed_plugins.json 等）", description: "照单在新机重装插件", tier: "recommended", strategy: "copy", pack_warning: null },
-  // ---- 完整档：会话历史 ----
-  { id: "session_db", display_name: "会话历史库（cli/db/db.sqlite）", description: "全部会话与消息（SQLite，源程序须完全退出）", tier: "full", strategy: "sqlite", pack_warning: null },
-  { id: "artifacts", display_name: "会话工件（cli/artifacts/）", description: "按会话组织的产物文件", tier: "full", strategy: "copy", pack_warning: null },
-  { id: "rollout", display_name: "会话 rollout（cli/rollout/）", description: "会话产物滚动输出", tier: "full", strategy: "copy", pack_warning: null },
-  { id: "tasks_index", display_name: "任务索引（v2/tasks-index.sqlite）", description: "任务索引库（SQLite，源程序须完全退出）", tier: "full", strategy: "sqlite", pack_warning: null },
-  { id: "v2_sessions", display_name: "导入会话（v2/sessions/）", description: "从 Claude 导入的会话 JSON", tier: "full", strategy: "copy", pack_warning: null },
-  // ---- 排除：永不入包 ----
-  { id: "credentials", display_name: "登录凭据（v2/credentials.json）", description: "绑定本机加密存储，新机重新登录即可，不迁移", tier: "excluded", strategy: "excluded", pack_warning: null },
-  { id: "caches", display_name: "运行缓存（日志/检查点/子代理产物等）", description: "约 3GB 可再生缓存，全部可重建，不迁移", tier: "excluded", strategy: "excluded", pack_warning: null },
-];
+/** 引擎档案类别 → 前端展示形态（与主进程 list_profiles 的映射同源同构）。 */
+function toCategoryInfos(categories: AssetCategory[]): CategoryInfo[] {
+  return categories.map((c) => ({
+    id: c.id,
+    display_name: c.display_name,
+    description: c.description,
+    tier: tierStr(c.tier, c.strategy),
+    strategy: strategyStr(c.strategy),
+    pack_warning: c.pack_warning,
+  }));
+}
 
 /**
- * Codex 档案类别表（与 src-tauri/src/profile/codex.rs 逐行一致）。
+ * ZCode 档案类别表（派生自引擎 zcodeProfile，与 list_profiles 输出一致）。
+ */
+export const MOCK_ZCODE_CATEGORIES: CategoryInfo[] = toCategoryInfos(zcodeProfile().categories);
+
+/**
+ * Codex 档案类别表（派生自引擎 codexProfile）。
  * main_config 携带 experimental_bearer_token 随包警告（后端决策 1-A：照迁+具体警告）。
  */
-export const MOCK_CODEX_CATEGORIES: CategoryInfo[] = [
-  // ---- 推荐档：纯资产 ----
-  { id: "global_rules", display_name: "全局规则（AGENTS.md）", description: "跨项目生效的 agent 行为规则", tier: "recommended", strategy: "copy", pack_warning: null },
-  { id: "main_config", display_name: "主配置（config.toml）", description: "provider/模型/MCP/项目信任路径，需路径适配", tier: "recommended", strategy: "copy_text_path_adapt", pack_warning: "本包含 API 凭据：config.toml 的 experimental_bearer_token 将随包迁移，请妥善保管迁移包" },
-  { id: "skills", display_name: "技能（skills/）", description: "已安装技能（含 .system 系统技能与外链技能实体收集）", tier: "recommended", strategy: "copy", pack_warning: null },
-  { id: "rules", display_name: "规则（rules/）", description: "沙箱与行为规则文件", tier: "recommended", strategy: "copy", pack_warning: null },
-  { id: "memories_dir", display_name: "记忆库（memories/）", description: "持久记忆文本与版本历史（含 .git 整体迁入）", tier: "recommended", strategy: "copy", pack_warning: null },
-  { id: "memories_db", display_name: "记忆索引库（memories_1.sqlite）", description: "记忆索引（SQLite，源程序须完全退出）", tier: "recommended", strategy: "sqlite", pack_warning: null },
-  // ---- 完整档：会话历史与工作态 ----
-  { id: "sessions", display_name: "会话记录（sessions/）", description: "按日期组织的会话 rollout 文件（约 345MB）", tier: "full", strategy: "copy", pack_warning: null },
-  { id: "archived_sessions", display_name: "归档会话（archived_sessions/）", description: "已归档会话文件（约 111MB）", tier: "full", strategy: "copy", pack_warning: null },
-  { id: "session_index", display_name: "会话索引（session_index.jsonl）", description: "会话索引，含本机绝对路径，需路径适配", tier: "full", strategy: "copy_text_path_adapt", pack_warning: null },
-  { id: "goals_db", display_name: "目标库（goals_1.sqlite）", description: "用户目标数据（SQLite，源程序须完全退出）", tier: "full", strategy: "sqlite", pack_warning: null },
-  { id: "plugins_sources", display_name: "插件源码（plugins/sources/）", description: "已安装插件本体与元数据（约 137MB），元数据可能含本机路径", tier: "full", strategy: "copy_text_path_adapt", pack_warning: null },
-  { id: "automations", display_name: "自动化定义（automations/）", description: "自动化任务定义", tier: "full", strategy: "copy", pack_warning: null },
-  { id: "attachments", display_name: "会话附件（attachments/）", description: "会话引用的附件文件，从属于会话历史", tier: "full", strategy: "copy", pack_warning: null },
-  // ---- 排除：永不入包 ----
-  { id: "credentials", display_name: "登录凭据（auth.json 等）", description: "绑定本机与账号，新机重新登录即可，不迁移", tier: "excluded", strategy: "excluded", pack_warning: null },
-  { id: "caches", display_name: "运行缓存（日志库/插件服务器/临时目录等）", description: "约 1.3GB 可再生缓存与本机强绑定运行态，全部可重建，不迁移", tier: "excluded", strategy: "excluded", pack_warning: null },
-];
+export const MOCK_CODEX_CATEGORIES: CategoryInfo[] = toCategoryInfos(codexProfile().categories);
 
 /**
- * Claude Code 档案类别表（与 src-tauri/src/profile/claude.rs 逐行一致）。
+ * Claude Code 档案类别表（派生自引擎 claudeProfile）。
  * settings 携带 ANTHROPIC_AUTH_TOKEN 随包警告（后端决策 1-A：照迁+具体警告）。
  */
-export const MOCK_CLAUDE_CATEGORIES: CategoryInfo[] = [
-  // ---- 推荐档：纯资产 ----
-  { id: "settings", display_name: "核心设置（settings.json）", description: "模型映射/代理地址/env，需路径适配", tier: "recommended", strategy: "copy_text_path_adapt", pack_warning: "本包含 API 凭据：settings.json 的 ANTHROPIC_AUTH_TOKEN 将随包迁移，请妥善保管迁移包" },
-  { id: "global_memory", display_name: "全局记忆（CLAUDE.md）", description: "跨项目生效的全局记忆文件（未创建过则本机不存在）", tier: "recommended", strategy: "copy", pack_warning: null },
-  { id: "skills", display_name: "技能（skills/）", description: "已安装技能（外链技能按目标实体收集）", tier: "recommended", strategy: "copy", pack_warning: null },
-  { id: "plugins", display_name: "插件（plugins/）", description: "已安装插件本体与配置", tier: "recommended", strategy: "copy", pack_warning: null },
-  // ---- 完整档：会话历史 ----
-  { id: "projects", display_name: "项目会话（projects/）", description: "按项目组织的会话 JSONL；子目录名编码旧机绝对路径，历史原样迁入、新机不自动关联", tier: "full", strategy: "copy", pack_warning: null },
-  { id: "sessions", display_name: "会话数据（sessions/）", description: "会话附属数据", tier: "full", strategy: "copy", pack_warning: null },
-  { id: "history", display_name: "命令历史（history.jsonl）", description: "输入历史，历史记录原样迁入", tier: "full", strategy: "copy", pack_warning: null },
-  { id: "file_history", display_name: "文件修改历史（file-history/）", description: "会话中文件修改的回滚历史", tier: "full", strategy: "copy", pack_warning: null },
-  // ---- 排除：永不入包 ----
-  { id: "config", display_name: "登录配置（config.json）", description: "含 primaryApiKey 字段，新机由登录流程重写，不迁移", tier: "excluded", strategy: "excluded", pack_warning: null },
-  { id: "caches", display_name: "运行缓存（缓存/遥测/快照等）", description: "可再生运行态与遥测数据，全部可重建，不迁移", tier: "excluded", strategy: "excluded", pack_warning: null },
-];
+export const MOCK_CLAUDE_CATEGORIES: CategoryInfo[] = toCategoryInfos(claudeProfile().categories);
 
 /** 单个档案的演示定义（list_profiles 返回形态的数据源）。 */
 interface MockProfileDef {
@@ -435,7 +388,7 @@ function mockManifest(profileId: string, onlyCategories?: string[], warnings?: s
   }
   const total = files.reduce((s, f) => s + f.size, 0);
   const usedCategories = [...new Set(files.map((f) => f.category))];
-  // 选中类别携带的档案级警告（pack_warning）追加在调用方警告之后（与 packer.rs 同序）
+  // 选中类别携带的档案级警告（pack_warning）追加在调用方警告之后（与 packer 同序）
   const packWarnings = wanted
     .map((id) => profile.categories.find((c) => c.id === id)?.pack_warning ?? null)
     .filter((w): w is string => w !== null);
@@ -541,7 +494,7 @@ function mockDetect(profileId: string): DetectResult {
 }
 
 // ---------------------------------------------------------------------------
-// 进度模拟：按步骤序列逐拍发射，phase 字面量与后端 commands.rs 实际发射一致。
+// 进度模拟：按步骤序列逐拍发射，phase 字面量与主进程命令层实际发射一致。
 // ---------------------------------------------------------------------------
 
 interface ProgressStep {
@@ -676,7 +629,7 @@ function mockRoute<T>(cmd: string, args: Record<string, unknown>): Promise<T> {
             executed: items.map((it) => ({
               target_rel: it.target_rel,
               action: it.action,
-              // 与后端 applier.rs 契约一致：ok=已写入并复验 / skipped=计划内跳过
+              // 与后端 applier 契约一致：ok=已写入并复验 / skipped=计划内跳过
               status: (it.action === "skip_same" || it.action === "keep"
                 ? "skipped"
                 : "ok") as "ok" | "skipped",
@@ -747,12 +700,7 @@ export function apiCall<T>(cmd: string, args?: Record<string, unknown>): Promise
  */
 export async function pickDirectory(current?: string): Promise<string | null> {
   if (!isMock) {
-    const picked = await openDialog({
-      directory: true,
-      multiple: false,
-      ...(current?.trim() ? { defaultPath: current.trim() } : {}),
-    });
-    return typeof picked === "string" ? picked : null;
+    return window.agentferry!.pickDirectory(current?.trim() || undefined);
   }
   return delay("D:\\迁移包");
 }
@@ -763,12 +711,7 @@ export async function pickDirectory(current?: string): Promise<string | null> {
  */
 export async function pickPackage(current?: string): Promise<string | null> {
   if (!isMock) {
-    const picked = await openDialog({
-      multiple: false,
-      filters: [{ name: "资产摆渡迁移包", extensions: ["zam"] }],
-      ...(current?.trim() ? { defaultPath: current.trim() } : {}),
-    });
-    return typeof picked === "string" ? picked : null;
+    return window.agentferry!.pickPackage(current?.trim() || undefined);
   }
   return delay(MOCK_PACKAGE);
 }

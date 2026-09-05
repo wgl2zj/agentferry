@@ -10,10 +10,14 @@ const host = process.env.TAURI_DEV_HOST;
 export default defineConfig(async () => ({
   plugins: [react()],
 
-  // Vitest：jsdom 环境，默认只收集 src 下的 .test.ts/.tsx
+  // Electron 以 file:// 加载 dist/index.html，资源必须用相对路径（Tauri 自定义协议不需要）。
+  base: "./",
+
+  // Vitest：渲染层默认 jsdom 环境，收集 src 与 electron（引擎）下的测试；
+  // 引擎测试为 Node 环境，用文件内 `@vitest-environment node` 注释声明。
   test: {
     environment: "jsdom",
-    include: ["src/**/*.test.{ts,tsx}"],
+    include: ["src/**/*.test.{ts,tsx}", "electron/**/*.test.{ts,tsx}"],
   },
 
   // Vite options tailored for Tauri development and only applied in `tauri dev` or `tauri build`

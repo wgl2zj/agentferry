@@ -49,10 +49,14 @@
 ## 模块条目
 
 > 五个核心模块已建立（2026-08-17）。测试锁定标注见各条；预期均经代码核实。
+> **架构迁移（2026-09-05）**：引擎已从 Rust（src-tauri/）整体迁移为 TypeScript（electron/engine/，
+> Electron 主进程 + IPC 命令层 electron/commands.ts + main.ts），前端 React 组件层零改动（仅
+> ipc.ts/mock.ts 桥接实现替换）；全部 Rust 测试逐条翻译为同名 vitest 测试（npm test，94 用例），
+> 各条目中标注的测试名继续有效，测试文件为 electron/engine/*.test.ts。src-tauri/ 冻结待移除。
 
 ## 资产档案（profile）
 
-**主代码**：`src-tauri/src/profile/mod.rs`、`src-tauri/src/profile/zcode.rs`、`src-tauri/src/profile/codex.rs`、`src-tauri/src/profile/claude.rs`
+**主代码**：`electron/engine/profile/types.ts`（类型与档位纯逻辑）、`electron/engine/profile/runtime.ts`（家目录定位）、`electron/engine/profile/zcode.ts`、`electron/engine/profile/codex.ts`、`electron/engine/profile/claude.ts`、`electron/engine/profile/index.ts`（注册中心）
 **模型/数据**：`Profile` → `AssetCategory`（id/tier/strategy/rule/pack_warning）→ `PathRule`（File/Dir/Many）
 **关联决策**：spec 决策 2（数据驱动）；2026-08-17 决策（decide-k3）：凭据混配置照迁+具体警告、一档案一包、次要归档全量定性
 
@@ -78,11 +82,11 @@
 
 ### 反直觉/易误解（踩坑预警）
 - 曾有缺陷：Recommended 档过滤漏了 Excluded（credentials 的 tier 恰为 Recommended），导致打包报"排除项不得入包"。已修复并以测试锁定。
-- jsonl 曾被 kind_of 判为 Binary（2026-08-17 修复，经决策者授权的引擎例外 #2）：会使 CopyTextNeedsPathAdapt 类别的路径适配静默失效（pathfix 只处理 kind=text，pathfix.rs 双重门）；现有一致性锁测试遍历三档案 File 规则的路径适配类别断言 kind=Text。
+- jsonl 曾被 kind_of 判为 Binary（2026-08-17 修复，经决策者授权的引擎例外 #2）：会使 CopyTextNeedsPathAdapt 类别的路径适配静默失效（pathfix 只处理 kind=text，pathfix.ts 双重门）；现有一致性锁测试遍历三档案 File 规则的路径适配类别断言 kind=Text。
 
 ## 资产扫描（scanner）
 
-**主代码**：`src-tauri/src/scanner.rs`
+**主代码**：`electron/engine/scanner.ts`
 **模型/数据**：`ScanReport` → `CategoryReport`（status/files/total_bytes）→ `ScannedFile`（rel_path/size/sha256/kind）
 
 ### 一句话定位
@@ -96,7 +100,7 @@
 ### 行为预期（可验证，已逐条核实代码）
 1. **只读**：扫描不修改源目录任何文件的 mtime 与内容（测试 `scanner_never_mutates_source` 锁定）。
 2. **跟随符号链接（物理路径方式）**：目录/文件链接（如 skills → ~/.skills-manager 的外链技能）按目标真实内容收集打包，新机得到自包含副本；跟随实现为"读 reparse 数据解析目标 + 全程物理路径访问"——不穿越链接（提升权限进程穿越 junction 会被 Windows 重定向信任缓解拒绝，os error 448，真实事故 2026-08-17）。真环（链上目标重复）跳过、兄弟链接同目标各自完整收集（测试 `scanner_follows_symlinked_skill_dirs`、`scanner_survives_link_cycles_and_sibling_links` 锁定）。
-3. **WAL/SHM 阻断**：SQLite 类别同目录存在 `-wal`/`-shm` → `CategoryStatus::Blocked`（测试 `scanner_categorizes_fake_tree`）。
+3. **WAL/SHM 阻断**：SQLite 类别同目录存在 `-wal`/`-shm` → 状态 blocked（测试 `scanner_categorizes_fake_tree`）。
 4. **排除项不哈希**：Excluded 类别只统计体量，sha256 为空（快且不碰敏感内容）。
 5. **kind 判定**：扩展名 md/markdown/json/toml/yaml/yml/txt/csv/jsonl→text；sqlite/db→sqlite；其余 binary。jsonl 判 text 是引擎例外 #2（否则路径适配静默失效，见 profile 条目预警）。
 6. **规模**：文件数 ×10 耗时增长 ≤ ×15（测试 `scanner_scales_linearly_with_file_count` 拦截超线性）。
@@ -108,7 +112,7 @@
 
 ## 打包（packer）
 
-**主代码**：`src-tauri/src/packer.rs`
+**主代码**：`electron/engine/packer.ts`
 **模型/数据**：`.zam`（ZIP）+ 包根 `manifest.json`（format_version=1、source.username、files[].sha256/kind/needs_path_adapt、warnings）
 
 ### 一句话定位
@@ -127,13 +131,13 @@
 5. **类别 pack_warning 入清单**（授权例外 #1）：选中携带 pack_warning 的类别时其确切字符串追加进 manifest.warnings（调用方警告在前）；None 零影响、zcode 行为不变（三道测试锁定，见 profile 条目）。
 6. **哈希完整性**：包内文件读回哈希 == manifest 记录（测试 `packer_roundtrip_manifest_and_hashes`）。
 7. **进度回调**：引擎回调次数 == 文件数（UI 进度条数据源）；Tauri 事件层经 `ProgressThrottle` 50ms 节流（首条与末条必发，进度条能启动并到 100%；测试 `progress_throttle_drops_close_events_but_keeps_first_and_last`）。
-8. **只扫选中类别**（性能，2026-08-18）：打包内部经 `scanner::scan_selected` 只盘点选中类别——未选中类别零触碰（枚举/元数据/内容读取都不发生），自定义小档不为未选中大会话库付扫描成本；选中类别的 WAL 阻断仍生效（测试 `scanner_scan_selected_only_returns_selected_categories`、耗时锁 `packer_pack_time_ignores_unselected_categories`）。UI 盘点页的 `scan_assets` 仍是全类别含哈希（展示完整性基线），两者语义不同。
+8. **只扫选中类别**（性能，2026-08-18）：打包内部经 `scanner.scanSelected` 只盘点选中类别——未选中类别零触碰（枚举/元数据/内容读取都不发生），自定义小档不为未选中大会话库付扫描成本；选中类别的 WAL 阻断仍生效（测试 `scanner_scan_selected_only_returns_selected_categories`、耗时锁 `packer_pack_time_ignores_unselected_categories`）。UI 盘点页的 `scan_assets` 仍是全类别含哈希（展示完整性基线），两者语义不同。
 9. **哈希在写包时流式计算**（性能，2026-08-18）：扫描期不算哈希（sha256 置空），写 zip 时对所写内容边写边算——源文件只读一遍，且哈希即所写内容，无"清单与包内容不一致"窗口。
-10. **SQLite 条目 Stored 存储**（decide-k3 拍板方案 B，2026-08-18）：`FileKind::Sqlite` 条目不压缩（Stored），其余 Deflated——sqlite 压缩率低且 deflate 是打包耗时大头；判定只走 FileKind 纯函数 `compression_for`，不加大小阈值；manifest 不加压缩方法字段，新旧包互兼容（测试 `packer_sqlite_stored_others_deflated`、`applier_reads_legacy_deflated_sqlite_package`）。包体积预期：sqlite 部分不再缩小，属预期非回归。
+10. **SQLite 条目 Stored 存储**（decide-k3 拍板方案 B，2026-08-18）：sqlite 条目不压缩（Stored），其余 Deflated——sqlite 压缩率低且 deflate 是打包耗时大头；判定只走 FileKind 纯函数（packer.compressEntry），不加大小阈值；manifest 不加压缩方法字段，新旧包互兼容（测试 `packer_sqlite_stored_others_deflated`、`applier_reads_legacy_deflated_sqlite_package`）。包体积预期：sqlite 部分不再缩小，属预期非回归。
 
 ## 覆盖 apply（applier）
 
-**主代码**：`src-tauri/src/applier.rs`
+**主代码**：`electron/engine/applier.ts`
 **模型/数据**：`ApplyPlan`（items[].action ∈ create/skip_same/replace/keep、plan_token、confirmed_overrides）→ `ApplyReport`
 
 ### 一句话定位
@@ -163,7 +167,7 @@
 
 ## 路径替换（pathfix）
 
-**主代码**：`src-tauri/src/pathfix.rs`
+**主代码**：`electron/engine/pathfix.ts`
 **模型/数据**：`DetectResult`（seeds：旧→新+命中数）→ `PathFixReport`（replaced/skipped/backup_dir）
 
 ### 一句话定位
@@ -183,7 +187,7 @@
 
 ## 应用设置（settings）
 
-**主代码**：`src-tauri/src/commands.rs`（load/save_settings）、`src/lib/mock.ts`（pickDirectory）
+**主代码**：`electron/engine/commands.ts`（load/save_settings）、`src/lib/mock.ts`（pickDirectory）
 **模型/数据**：`Settings { default_output_dir }`，存 `app_config_dir/settings.json`
 
 ### 一句话定位

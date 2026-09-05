@@ -3,9 +3,13 @@
   "private": true,
   "version": "0.1.6",
   "type": "module",
+  "main": "dist-electron/main.cjs",
   "scripts": {
     "dev": "vite",
-    "build": "tsc && vite build",
+    "dev:electron": "node scripts/dev-electron.mjs",
+    "build": "tsc && vite build && npm run build:electron",
+    "build:electron": "node scripts/build-electron.mjs",
+    "typecheck:electron": "tsc -p electron/tsconfig.json",
     "preview": "vite preview",
     "tauri": "tauri",
     "test": "vitest run",
@@ -16,7 +20,9 @@
     "@tauri-apps/plugin-dialog": "^2.7.2",
     "@tauri-apps/plugin-opener": "^2",
     "react": "^19.1.0",
-    "react-dom": "^19.1.0"
+    "react-dom": "^19.1.0",
+    "yauzl": "^3.4.0",
+    "yazl": "^3.3.1"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2",
@@ -25,7 +31,11 @@
     "@types/node": "^26.2.0",
     "@types/react": "^19.1.8",
     "@types/react-dom": "^19.1.6",
+    "@types/yauzl": "^3.4.0",
+    "@types/yazl": "^3.3.1",
     "@vitejs/plugin-react": "^4.6.0",
+    "electron": "^44.2.0",
+    "esbuild": "^0.28.2",
     "jsdom": "^26.1.0",
     "typescript": "~5.8.3",
     "vite": "^7.0.4",
