@@ -413,9 +413,11 @@ function mockPlan(
   overrides: string[],
   targetRoot?: string,
   packagePath?: string,
+  mergeRelPaths?: string[],
 ): ApplyPlan {
   const profile = mockProfileById(profileId);
   const manifest = mockManifest(profile.id);
+  const wantMerge = new Set(mergeRelPaths ?? []);
   const items: PlanItem[] = manifest.files.map((f, i) => {
     const mod = i % 5;
     if (mod === 0) {
@@ -430,10 +432,30 @@ function mockPlan(
       };
     }
     if (mod === 3) {
-      // 冲突：目标已有不同内容。覆盖模式默认替换；增量模式默认保留，可被 overrides 改判。
+      // 冲突：目标已有不同内容。覆盖模式默认替换；增量模式默认保留，可被 overrides 改判；
+      // 勾选"内容合并"且类型支持（.md/.json）→ 合并（携带预览）。
       const conflicted = overrides.includes(f.target_rel);
+      const canMerge = wantMerge.has(f.target_rel) && /\.(md|markdown|json)$/i.test(f.target_rel);
       const action =
-        mode === "overwrite" ? "replace" : conflicted ? "replace" : "keep";
+        canMerge ? "merge" : mode === "overwrite" ? "replace" : conflicted ? "replace" : "keep";
+      const merge = canMerge
+        ? {
+            merged_sha256: fakeHash(`merge:${f.target_rel}`),
+            preview: f.target_rel.endsWith(".json")
+              ? {
+                  strategy: "json" as const,
+                  added_keys: ["demo.fromOldMachine"],
+                  scalar_conflicts: [{ path: "demo.theme", target: '"new"', package: '"old"' }],
+                }
+              : {
+                  strategy: "markdown" as const,
+                  target_lines: 12,
+                  package_lines: 10,
+                  merged_lines: 16,
+                  appended: 4,
+                },
+          }
+        : undefined;
       return {
         target_rel: f.target_rel,
         category: f.category,
@@ -441,6 +463,7 @@ function mockPlan(
         size: f.size,
         action,
         target_sha256: fakeHash(`target:${f.target_rel}`),
+        merge,
       };
     }
     return {
@@ -608,6 +631,7 @@ function mockRoute<T>(cmd: string, args: Record<string, unknown>): Promise<T> {
             (args.conflictOverrides as string[]) ?? [],
             args.targetRoot as string | undefined,
             packagePath,
+            args.mergeRelPaths as string[] | undefined,
           ),
       ) as Promise<T>;
     }

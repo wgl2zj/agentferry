@@ -92,7 +92,7 @@ describe("解包向导：dry-run 计划确认（第 4 步）", () => {
     });
 
     // 页脚统计可见
-    expect(screen.getByText(/新增 \d+ · 跳过 \d+ · 替换 \d+ · 保留 \d+/)).toBeInTheDocument();
+    expect(screen.getByText(/新增 \d+ · 跳过 \d+ · 替换 \d+ · 合并 \d+ · 保留 \d+/)).toBeInTheDocument();
 
     // 「执行解包」走高风险确认对话框，确认前不调 execute_apply
     const execBtn = await screen.findByRole("button", { name: "执行解包" });
@@ -109,6 +109,25 @@ describe("解包向导：dry-run 计划确认（第 4 步）", () => {
         true,
       );
     });
+  });
+
+  it("冲突行可改判「内容合并」：plan_apply 携带 mergeRelPaths，合并组渲染预览", async () => {
+    await gotoPlanStep();
+    // 演示数据的冲突文件为 .json（引擎支持合并），冲突行有「内容合并」按钮
+    const mergeBtns = await screen.findAllByRole("button", { name: "内容合并" });
+    fireEvent.click(mergeBtns[0]);
+    await waitFor(() => {
+      const planCalls = vi
+        .mocked(apiCall)
+        .mock.calls.filter((c) => c[0] === COMMANDS.planApply);
+      const last = planCalls[planCalls.length - 1][1] as { mergeRelPaths?: string[] };
+      expect(last.mergeRelPaths?.length).toBe(1);
+    });
+    // 合并组渲染且预览摘要可见
+    expect(await screen.findByText("冲突：内容合并（两边内容都保留）")).toBeInTheDocument();
+    expect(screen.getByText(/取旧机值/)).toBeInTheDocument();
+    // 页脚统计中合并计数为 1
+    expect(screen.getByText(/合并 1 ·/)).toBeInTheDocument();
   });
 
   it("第 1 步「浏览…」选择迁移包后回填路径，取消不改动", async () => {

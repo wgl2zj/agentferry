@@ -128,3 +128,75 @@ it("integration_pack_move_overwrite_journey：覆盖模式旅程，全部冲突�
   const backupDir = report.backup_dir!;
   expect(await fsp.readFile(path.join(backupDir, "AGENTS.md"), "utf8")).toBe("新机旧规则");
 });
+
+it("integration_merge_journey：换机时对冲突配置与记忆勾选合并，两边内容都在且 pathfix 照常生效", async () => {
+  // ---- 旧机：构造资产并打包（config 与记忆文件内容与包一致）----
+  const oldRoot = await tempDir();
+  fs.writeFileSync(path.join(oldRoot, "AGENTS.md"), "# 全局规则\n- [规则条目](r.md) — 旧机规则");
+  fs.mkdirSync(path.join(oldRoot, "cli"), { recursive: true });
+  fs.writeFileSync(
+    path.join(oldRoot, "cli/config.json"),
+    String.raw`{"mcpCmd":"C:\\Users\\olduser\\py.exe","old":"旧机独有字段"}`,
+  );
+  fs.mkdirSync(path.join(oldRoot, "cli/memories/projects/p1"), { recursive: true });
+  fs.writeFileSync(
+    path.join(oldRoot, "cli/memories/projects/p1/MEMORY.md"),
+    "# MEMORY.md\n- [旧机记忆](old.md) — 旧机独有的记忆条目",
+  );
+
+  const profile = zcodeProfile();
+  const ids = categoryIdsForPreset(profile, { kind: "Recommended" });
+  const pkg = path.join(oldRoot, "ferry/合并包.zam");
+  await pack(profile, oldRoot, ids, "recommended", pkg, [], APP_VERSION, () => {});
+
+  // ---- 新机：同名文件都存在但内容不同（新机自己攒的）----
+  const newMachine = await tempDir();
+  const pkg2 = path.join(newMachine, "合并包.zam");
+  fs.copyFileSync(pkg, pkg2);
+  const restored = path.join(newMachine, ".zcode");
+  fs.mkdirSync(path.join(restored, "cli/memories/projects/p1"), { recursive: true });
+  fs.writeFileSync(path.join(restored, "AGENTS.md"), "# 全局规则\n- [新机规则](n.md) — 新机自己的规则");
+  fs.writeFileSync(
+    path.join(restored, "cli/config.json"),
+    String.raw`{"mcpCmd":"D:\\new\\py.exe","local":"新机独有字段"}`,
+  );
+  fs.writeFileSync(
+    path.join(restored, "cli/memories/projects/p1/MEMORY.md"),
+    "# MEMORY.md\n- [新机记忆](new.md) — 新机自己攒的记忆条目",
+  );
+
+  // ---- 增量计划：三个冲突文件全部勾选内容合并 ----
+  const mergeRelPaths = ["AGENTS.md", "cli/config.json", "cli/memories/projects/p1/MEMORY.md"];
+  const plan = await makePlan(pkg2, await openPackage(pkg2, () => {}), restored, "incremental", [], mergeRelPaths);
+  for (const rel of mergeRelPaths) {
+    expect(plan.items.find((i) => i.target_rel === rel)!.action).toBe("merge");
+  }
+
+  // ---- 执行：两边内容都在 ----
+  const report = await executeApplyTo(plan, restored, () => {});
+  const md = await fsp.readFile(path.join(restored, "cli/memories/projects/p1/MEMORY.md"), "utf8");
+  expect(md).toContain("新机自己攒的记忆条目");
+  expect(md).toContain("旧机独有的记忆条目");
+  const rules = await fsp.readFile(path.join(restored, "AGENTS.md"), "utf8");
+  expect(rules).toContain("新机自己的规则");
+  expect(rules).toContain("旧机规则");
+  // config：包独有字段加入、新机独有字段保留、同字段取旧机包值
+  const cfg = JSON.parse(await fsp.readFile(path.join(restored, "cli/config.json"), "utf8")) as Record<string, unknown>;
+  expect(cfg.old).toBe("旧机独有字段");
+  expect(cfg.local).toBe("新机独有字段");
+  expect(cfg.mcpCmd).toBe("C:\\Users\\olduser\\py.exe"); // 同字段取旧机包值（JSON 解析后单反斜杠）
+  // 备份存在（新机原内容可找回）
+  expect(fs.statSync(path.join(report.backup_dir!, "cli/config.json")).isFile()).toBe(true);
+
+  // ---- pathfix 协同：合并结果中的旧机路径仍被检出并替换 ----
+  const manifest2 = structuredClone(await openPackage(pkg2, () => {}));
+  manifest2.source.username = "olduser";
+  const det = await detect(restored, manifest2);
+  expect(det.seeds.reduce((s, x) => s + x.total_hits, 0)).toBeGreaterThanOrEqual(1);
+  const mappings: [string, string][] = det.seeds.map((s) => [s.old, s.new]);
+  const fixReport = await applyMappings(restored, manifest2, mappings, true);
+  const cfgText = await fsp.readFile(path.join(restored, "cli/config.json"), "utf8");
+  expect(cfgText.includes("olduser"), `旧用户名应全部替换：${cfgText}`).toBe(false);
+  expect(cfgText).toContain("旧机独有字段"); // 替换不破坏合并结果
+  expect(fixReport.replaced.length).toBeGreaterThan(0);
+});

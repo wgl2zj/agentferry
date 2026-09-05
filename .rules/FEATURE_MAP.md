@@ -165,6 +165,32 @@
 ### 反直觉/易误解（踩坑预警）
 - 曾有缺陷：令牌校验最初只比对"生成时快照"，传入 items 被篡改仍放行——被反向测试抓住后改为双道校验。改本模块时勿再弱化任一道。
 
+## 内容级合并（merge）
+
+**主代码**：`electron/engine/merge.ts`；集成：`electron/engine/applier.ts`（merge 动作进安全框架）、`src/pages/UnpackWizard.tsx`（冲突行三态切换与预览展示）
+**模型/数据**：`PlanItem.merge`（merged_sha256 + MergePreview：markdown appended 统计 / json added_keys+scalar_conflicts）、`ApplyPlan.merge_rel_paths`
+**关联决策**：2026-09-05 用户拍板——逐文件勾选启用（防散文 md 被自动拼接）、JSON 同字段冲突取旧机包值
+
+### 一句话定位
+解包冲突文件的内容级合并：在"保留目标/备份后替换"之外提供"两边内容都保留"的第三选择（记忆条目追加、配置字段合并不再二选一）。
+
+### 用户入口
+| 入口 | 能做什么 |
+|---|---|
+| 前端解包向导④ | 冲突行三态切换（保留/替换/内容合并），合并组展示预览统计，可取消合并 |
+
+### 行为预期（可验证，已逐条核实代码，2026-09-05 预期清单经用户确认）
+1. **仅 .md/.markdown/.json 可合并**：其他类型不出现合并选项，勾选后落回普通冲突动作（测试 `mergeStrategyFor`、`applier_merge_unsupported_type_falls_back`）。
+2. **Markdown 行级并集**：目标为基底保序，包独有行追加（追加块前空一行），行精确匹配去重，结果确定（同输入同输出哈希；测试 `mergeMarkdown` 组）。
+3. **JSON 递归深合并**：包独有 key 加入、嵌套对象递归、同字段值不同取旧机包值并逐条记录 scalar_conflicts（新机值保留在备份；测试 `mergeJson` 组）。
+4. **merge 是写动作**：进计划并被令牌覆盖（PlanItem.merge 携带合并结果哈希）；执行先备份原文件 → 重算合并并校验与计划一致 → 写入 → 逐文件复验；篡改合并哈希或计划后目标/包变化 → plan_not_confirmed（测试 `applier_plan_merge_action_and_token`、`applier_execute_merge_preserves_both_sides`、`applier_rejects_tampered_merge`、`applier_merge_replay_detects_target_change`）。
+5. **零合并请求零扰动**：merge_rel_paths 为空时不打开归档，计划令牌与无合并概念的历史版本逐字节一致（回归锁 `applier_no_merge_requests_unchanged_behavior`）。
+6. **与 pathfix 协同**：合并结果若含旧机绝对路径，路径适配照常检出与替换，不破坏合并结果（测试 `integration_merge_journey`）。
+
+### 反直觉/易误解（踩坑预警）
+- JSON 合并统一以 2 空格缩进重写整个文件（字段值无损，但格式与手写格式不同属预期）。
+- "两边都有同一记忆文件"的合并粒度是**行**：两边各自追加的条目行并存；同一行的正文差异无法行级合并（会保留为两行）。
+
 ## 路径替换（pathfix）
 
 **主代码**：`electron/engine/pathfix.ts`

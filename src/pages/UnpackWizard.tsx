@@ -11,10 +11,12 @@ import {
   type DetectResult,
   type Manifest,
   type PathFixReport,
+  type PlanItem,
   type ProfileSummary,
   type ProgressPayload,
 } from "../lib/ipc";
 import { apiCall, pickDirectory, pickPackage, useProgress } from "../lib/mock";
+import { mergeStrategyFor } from "../../electron/engine/merge";
 import { formatBytes } from "../lib/format";
 import { Banner } from "../components/Banner";
 import { ConfirmDialog } from "../components/ConfirmDialog";
@@ -73,7 +75,11 @@ export function UnpackWizard(props: { onExit: () => void }) {
   const [plan, setPlan] = useState<ApplyPlan | null>(null);
   const [planning, setPlanning] = useState(false);
   const [planError, setPlanError] = useState<string | null>(null);
-  const [overrides, setOverrides] = useState<Set<string>>(new Set());
+  /** 冲突文件的处理选择：ov=备份后替换集合；mg=内容合并集合（merge 优先于 replace/keep）。 */
+  const [conflictChoice, setConflictChoiceState] = useState<{ ov: Set<string>; mg: Set<string>}>({
+    ov: new Set(),
+    mg: new Set(),
+  });
   const [confirmApply, setConfirmApply] = useState(false);
 
   // 第 5 步：执行与报告
@@ -155,7 +161,7 @@ export function UnpackWizard(props: { onExit: () => void }) {
       .finally(() => setOpening(false));
   };
 
-  const runPlan = (ov: Set<string>) => {
+  const runPlan = (ov: Set<string>, mg: Set<string>) => {
     setPlanning(true);
     setPlanError(null);
     apiCall<ApplyPlan>(COMMANDS.planApply, {
@@ -163,6 +169,7 @@ export function UnpackWizard(props: { onExit: () => void }) {
       mode,
       conflictOverrides: [...ov],
       targetRoot: targetRoot.trim(),
+      mergeRelPaths: [...mg],
     })
       .then((p) => setPlan(p))
       .catch((e: unknown) => setPlanError(isAppError(e) ? e.message : "生成变更计划失败"))
@@ -175,7 +182,7 @@ export function UnpackWizard(props: { onExit: () => void }) {
       return;
     }
     setStep(3);
-    runPlan(overrides);
+    runPlan(conflictChoice.ov, conflictChoice.mg);
   };
 
   /** 弹系统目录选择框选恢复目标根目录；取消不改动。 */
@@ -187,14 +194,23 @@ export function UnpackWizard(props: { onExit: () => void }) {
     }
   };
 
-  /** 冲突行改判：勾选"备份后替换"则加入 overrides 并重新 plan。 */
-  const setConflictAction = (targetRel: string, toReplace: boolean) => {
-    setOverrides((prev) => {
-      const next = new Set(prev);
-      if (toReplace) next.add(targetRel);
-      else next.delete(targetRel);
-      runPlan(next);
-      return next;
+  /** 冲突行三态改判：保留目标 / 备份后替换 / 内容合并（仅 .md/.json 可选合并），改判触发重新 plan。 */
+  const setConflictChoice = (targetRel: string, choice: "keep" | "replace" | "merge") => {
+    setConflictChoiceState((prev) => {
+      const ov = new Set(prev.ov);
+      const mg = new Set(prev.mg);
+      if (choice === "replace") {
+        ov.add(targetRel);
+        mg.delete(targetRel);
+      } else if (choice === "merge") {
+        mg.add(targetRel);
+        ov.delete(targetRel);
+      } else {
+        ov.delete(targetRel);
+        mg.delete(targetRel);
+      }
+      runPlan(ov, mg);
+      return { ov, mg };
     });
   };
 
@@ -202,9 +218,14 @@ export function UnpackWizard(props: { onExit: () => void }) {
     const conflicts = (plan?.items ?? []).filter(
       (i) => i.action === "replace" || i.action === "keep",
     );
-    const next = new Set<string>(toReplace ? conflicts.map((c) => c.target_rel) : []);
-    setOverrides(next);
-    runPlan(next);
+    const next = toReplace ? new Set(conflicts.map((c) => c.target_rel)) : new Set<string>();
+    setConflictChoiceState((prev) => {
+      const mg = new Set(prev.mg);
+      for (const c of conflicts) mg.delete(c.target_rel);
+      const ov = next;
+      runPlan(ov, mg);
+      return { ov, mg };
+    });
   };
 
   const groups = useMemo(() => {
@@ -214,6 +235,7 @@ export function UnpackWizard(props: { onExit: () => void }) {
       skip_same: items.filter((i) => i.action === "skip_same"),
       replace: items.filter((i) => i.action === "replace"),
       keep: items.filter((i) => i.action === "keep"),
+      merge: items.filter((i) => i.action === "merge"),
     };
   }, [plan]);
 
@@ -228,7 +250,7 @@ export function UnpackWizard(props: { onExit: () => void }) {
     setStep(4);
     setExecuting(true);
     setProgress(null);
-    const confirmed: ApplyPlan = { ...plan, confirmed_overrides: [...overrides] };
+    const confirmed: ApplyPlan = { ...plan, confirmed_overrides: [...conflictChoice.ov] };
     apiCall<ApplyReport>(COMMANDS.executeApply, { plan: confirmed })
       .then((r) => {
         setReport(r);
@@ -497,7 +519,8 @@ export function UnpackWizard(props: { onExit: () => void }) {
               >
                 <span className="choice-card-title">增量模式（默认更稳）</span>
                 <span className="choice-card-desc">
-                  冲突文件默认保留目标不动，可在下一步计划里逐条或整组改判为替换。
+                  冲突文件默认保留目标不动，可在下一步计划里逐条改判为替换；.md/.json
+                  文件还可改判为「内容合并」，两边内容都保留。
                 </span>
               </button>
             </div>
@@ -599,9 +622,22 @@ export function UnpackWizard(props: { onExit: () => void }) {
                 </div>
                 <ConflictList
                   items={groups.replace}
-                  toReplace
-                  onChange={setConflictAction}
+                  current="replace"
+                  onChange={setConflictChoice}
                   empty="没有标记为替换的冲突文件"
+                />
+              </div>
+
+              <div>
+                <div className="group-head">
+                  <h3>冲突：内容合并（两边内容都保留）</h3>
+                  <span className="count-badge count-badge-accent">{groups.merge.length}</span>
+                  <StatusTag kind="info">merge</StatusTag>
+                </div>
+                <MergeList
+                  items={groups.merge}
+                  onUnmerge={(rel) => setConflictChoice(rel, "keep")}
+                  empty="没有勾选内容合并的冲突文件"
                 />
               </div>
 
@@ -622,8 +658,8 @@ export function UnpackWizard(props: { onExit: () => void }) {
                 </div>
                 <ConflictList
                   items={groups.keep}
-                  toReplace={false}
-                  onChange={setConflictAction}
+                  current="keep"
+                  onChange={setConflictChoice}
                   empty="没有保留目标的冲突文件"
                 />
               </div>
@@ -638,8 +674,8 @@ export function UnpackWizard(props: { onExit: () => void }) {
               {plan && (
                 <span>
                   新增 {groups.create.length} · 跳过 {groups.skip_same.length} · 替换{" "}
-                  {groups.replace.length} · 保留 {groups.keep.length} · 写入体量{" "}
-                  {formatBytes(writeBytes)}
+                  {groups.replace.length} · 合并 {groups.merge.length} · 保留 {groups.keep.length}{" "}
+                  · 写入体量 {formatBytes(writeBytes)}
                 </span>
               )}
             </div>
@@ -941,13 +977,13 @@ export function UnpackWizard(props: { onExit: () => void }) {
           },
           {
             label: "影响",
-            text: `新增 ${groups.create.length} 个、替换 ${groups.replace.length} 个（先备份）、跳过 ${groups.skip_same.length} 个、保留 ${groups.keep.length} 个`,
+            text: `新增 ${groups.create.length} 个、替换 ${groups.replace.length} 个（先备份）、内容合并 ${groups.merge.length} 个（先备份）、跳过 ${groups.skip_same.length} 个、保留 ${groups.keep.length} 个`,
           },
           {
             label: "后果",
             text:
-              groups.replace.length > 0
-                ? "被替换的目标文件会先备份到 zam-backups，可从备份恢复；本操作不删除任何目标文件"
+              groups.replace.length > 0 || groups.merge.length > 0
+                ? "被替换与被合并的目标文件会先备份到 zam-backups，可从备份恢复；本操作不删除任何目标文件"
                 : "只新增文件，不改动任何已有内容",
           },
           {
@@ -976,9 +1012,22 @@ function actionLabel(action: string): string {
       return "备份后替换";
     case "keep":
       return "保留目标";
+    case "merge":
+      return "内容合并";
     default:
       return action;
   }
+}
+
+/** 合并预览摘要（按策略展示统计）。 */
+function mergePreviewSummary(item: PlanItem): string {
+  const p = item.merge?.preview;
+  if (!p) return "";
+  if (p.strategy === "markdown") {
+    return `追加旧机 ${p.appended} 行（两边内容都保留，重复行去重）`;
+  }
+  const conflicts = p.scalar_conflicts.length;
+  return `新增 ${p.added_keys.length} 个字段${conflicts > 0 ? ` · ${conflicts} 处同字段冲突取旧机值` : ""}`;
 }
 
 /** 普通计划行列表（新增/跳过组）。 */
@@ -1008,11 +1057,12 @@ function ItemList(props: {
   );
 }
 
-/** 冲突组行列表：每行带「保留目标 / 备份后替换」分段切换，改判触发重新 plan。 */
+/** 冲突组行列表：每行带「保留目标 / 备份后替换 / 内容合并」三态切换，改判触发重新 plan。
+ *  「内容合并」仅对引擎支持的类型（.md/.json）展示（判定与引擎 mergeStrategyFor 同源）。 */
 function ConflictList(props: {
-  items: { target_rel: string; size: number }[];
-  toReplace: boolean;
-  onChange: (targetRel: string, toReplace: boolean) => void;
+  items: PlanItem[];
+  current: "keep" | "replace";
+  onChange: (targetRel: string, choice: "keep" | "replace" | "merge") => void;
   empty: string;
 }) {
   if (props.items.length === 0) return <p className="muted">{props.empty}</p>;
@@ -1032,19 +1082,62 @@ function ConflictList(props: {
                 >
                   <button
                     type="button"
-                    aria-pressed={!props.toReplace}
-                    onClick={() => props.onChange(i.target_rel, false)}
+                    aria-pressed={props.current === "keep"}
+                    onClick={() => props.onChange(i.target_rel, "keep")}
                   >
                     保留目标
                   </button>
                   <button
                     type="button"
-                    aria-pressed={props.toReplace}
-                    onClick={() => props.onChange(i.target_rel, true)}
+                    aria-pressed={props.current === "replace"}
+                    onClick={() => props.onChange(i.target_rel, "replace")}
                   >
                     备份后替换
                   </button>
+                  {mergeStrategyFor(i.target_rel) && (
+                    <button
+                      type="button"
+                      onClick={() => props.onChange(i.target_rel, "merge")}
+                    >
+                      内容合并
+                    </button>
+                  )}
                 </div>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+/** 合并组行列表：展示合并预览摘要，可取消合并（回到保留目标）。 */
+function MergeList(props: {
+  items: PlanItem[];
+  onUnmerge: (targetRel: string) => void;
+  empty: string;
+}) {
+  if (props.items.length === 0) return <p className="muted">{props.empty}</p>;
+  return (
+    <div className="table-shell">
+      <table className="data-table">
+        <tbody>
+          {props.items.map((i) => (
+            <tr key={i.target_rel}>
+              <td className="mono">{i.target_rel}</td>
+              <td className="num">{formatBytes(i.size)}</td>
+              <td>
+                <span className="secondary">{mergePreviewSummary(i)}</span>
+              </td>
+              <td>
+                <button
+                  type="button"
+                  className="btn btn-sm"
+                  onClick={() => props.onUnmerge(i.target_rel)}
+                >
+                  取消合并
+                </button>
               </td>
             </tr>
           ))}

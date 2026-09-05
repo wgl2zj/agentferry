@@ -103,13 +103,20 @@ export async function resolveTargetRoot(packagePath: string, targetRoot?: string
   return defaultRoot(profile);
 }
 
-/** 生成 dry-run 计划（纯只读；增量模式的冲突改判经 conflictOverrides 传入）。 */
+/** 生成 dry-run 计划（纯只读；增量模式的冲突改判经 conflictOverrides 传入；
+ *  mergeRelPaths 为用户勾选"内容级合并"的冲突文件清单，仅 .md/.json 生效）。 */
 export async function planApplyCmd(
-  args: { path: string; mode: ApplyMode; conflictOverrides?: string[]; targetRoot?: string },
+  args: {
+    path: string;
+    mode: ApplyMode;
+    conflictOverrides?: string[];
+    targetRoot?: string;
+    mergeRelPaths?: string[];
+  },
   progress: ProgressFn,
 ): Promise<ApplyPlan> {
   const target = await resolveTargetRoot(args.path, args.targetRoot);
-  return planApply(args.path, target, args.mode, args.conflictOverrides ?? [], progress);
+  return planApply(args.path, target, args.mode, args.conflictOverrides ?? [], progress, args.mergeRelPaths ?? []);
 }
 
 /** 执行已确认计划（令牌双道校验在引擎内完成）。 */

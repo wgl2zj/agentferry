@@ -101,6 +101,7 @@ function registerCommands(): void {
         mode,
         conflictOverrides: strList(args.conflictOverrides),
         targetRoot: optStr(args.targetRoot),
+        mergeRelPaths: strList(args.mergeRelPaths),
       },
       bridge(emitProgress, "plan", "planning"),
     );

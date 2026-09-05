@@ -12,6 +12,7 @@ import { pack, readManifest } from "./packer";
 import { categoryIdsForPreset } from "./profile/types";
 import { zcodeProfile } from "./profile/zcode";
 import { AppError } from "./error";
+import type { JsonMergePreview } from "./merge";
 import { entryBuffer, openZip } from "./zipio";
 
 const APP_VERSION = "0.1.6";
@@ -298,3 +299,94 @@ function listFiles(root: string): string[] {
   walk(root);
   return out;
 }
+
+// ---- 内容级合并（merge 动作，2026-09-05 预期清单 #1/#4/#5）----
+
+/** 构造带 md/json 冲突的目标机：AGENTS.md 与 cli/config.json 两边内容都不同。 */
+async function makeMergeScenario(): Promise<{ pkg: string; target: string }> {
+  const [, pkg] = await makePackage();
+  const target = path.join(path.dirname(pkg), "目标机");
+  fs.mkdirSync(path.join(target, "cli"), { recursive: true });
+  fs.writeFileSync(path.join(target, "AGENTS.md"), "规则 v1-新机版");
+  fs.writeFileSync(path.join(target, "cli/config.json"), String.raw`{"py":"D:\\new\\py.exe","local":"新机独有"}`);
+  return { pkg, target };
+}
+
+it("applier_plan_merge_action_and_token：勾选合并 → 冲突动作变 merge 且预览入计划；overwrite 模式同样生效", async () => {
+  const { pkg, target } = await makeMergeScenario();
+
+  const plan = await planApply(pkg, target, "incremental", [], () => {}, ["AGENTS.md", "cli/config.json"]);
+  const md = plan.items.find((i) => i.target_rel === "AGENTS.md")!;
+  const json = plan.items.find((i) => i.target_rel === "cli/config.json")!;
+  expect(md.action).toBe("merge");
+  expect(md.merge?.preview.strategy).toBe("markdown");
+  expect(json.action).toBe("merge");
+  expect(json.merge?.preview.strategy).toBe("json");
+  // 包里只有 py 字段 → 相对目标没有新增 key；目标独有 local 由深合并保留
+  expect((json.merge!.preview as JsonMergePreview).added_keys).toEqual([]);
+  expect(plan.merge_rel_paths).toEqual(["AGENTS.md", "cli/config.json"]);
+  // 非冲突文件不受影响
+  expect(plan.items.some((i) => i.action === "create")).toBe(true);
+
+  // overwrite 模式：replace 同样被勾选的合并覆盖
+  const plan3 = await planApply(pkg, target, "overwrite", [], () => {}, ["AGENTS.md"]);
+  expect(plan3.items.find((i) => i.target_rel === "AGENTS.md")!.action).toBe("merge");
+  // 未勾选的冲突仍是 replace
+  expect(plan3.items.find((i) => i.target_rel === "cli/config.json")!.action).toBe("replace");
+});
+
+it("applier_execute_merge_preserves_both_sides：执行合并 → 两边内容都在、备份为原目标内容、复验通过", async () => {
+  const { pkg, target } = await makeMergeScenario();
+  const plan = await planApply(pkg, target, "incremental", [], () => {}, ["AGENTS.md", "cli/config.json"]);
+  const report = await executeApply(plan, () => {});
+
+  // json：旧机字段（JSON 反转义后为单反斜杠路径）与新机独有字段并存（深合并取包值 + 目标独有保留）
+  const cfg = JSON.parse(await fsp.readFile(path.join(target, "cli/config.json"), "utf8")) as Record<string, unknown>;
+  expect(cfg.py).toBe("C:\\Users\\old\\py.exe");
+  expect(cfg.local).toBe("新机独有");
+  // md：行并集，两边内容都在（按整行断言）
+  const mdLines = (await fsp.readFile(path.join(target, "AGENTS.md"), "utf8")).split("\n");
+  expect(mdLines).toContain("规则 v1-新机版");
+  expect(mdLines).toContain("规则 v1");
+  // 备份 = 原目标内容（新机值不丢）
+  const backupCfg = JSON.parse(await fsp.readFile(path.join(report.backup_dir!, "cli/config.json"), "utf8")) as Record<string, unknown>;
+  expect(backupCfg.local).toBe("新机独有");
+  // verified 计数包含 merge 项
+  expect(report.verified_files).toBe(plan.items.filter((i) => i.action !== "keep").length);
+  // 报告中 merge 项 ok
+  expect(report.executed.find((e) => e.action === "merge")?.status).toBe("ok");
+});
+
+it("applier_rejects_tampered_merge：篡改合并预览哈希 → 令牌校验拒绝执行", async () => {
+  const { pkg, target } = await makeMergeScenario();
+  const plan = await planApply(pkg, target, "incremental", [], () => {}, ["AGENTS.md"]);
+  const item = plan.items.find((i) => i.action === "merge")!;
+  item.merge!.merged_sha256 = "0".repeat(64);
+  await expect(executeApply(plan, () => {})).rejects.toMatchObject({ code: "plan_not_confirmed" });
+});
+
+it("applier_merge_replay_detects_target_change：计划后目标文件变化 → 独立重放拒绝执行", async () => {
+  const { pkg, target } = await makeMergeScenario();
+  const plan = await planApply(pkg, target, "incremental", [], () => {}, ["cli/config.json"]);
+  // 计划生成后目标文件又被改（如用户手动编辑）
+  fs.writeFileSync(path.join(target, "cli/config.json"), '{"py":"被改过的内容","local":"新机独有","extra":1}');
+  await expect(executeApply(plan, () => {})).rejects.toMatchObject({ code: "plan_not_confirmed" });
+});
+
+it("applier_no_merge_requests_unchanged_behavior：零合并请求时计划与无合并概念版本完全一致（回归锁）", async () => {
+  const { pkg, target } = await makeMergeScenario();
+  const planOld = await planApply(pkg, target, "incremental", [], () => {});
+  const planEmpty = await planApply(pkg, target, "incremental", [], () => {}, []);
+  expect(planEmpty.plan_token).toBe(planOld.plan_token);
+  expect(planOld.items.every((i) => i.action !== "merge" && !i.merge)).toBe(true);
+});
+
+it("applier_merge_unsupported_type_falls_back：勾选不支持合并的类型 → 落回普通冲突动作", async () => {
+  const [, pkg] = await makePackage();
+  const target = path.join(path.dirname(pkg), "目标机");
+  fs.mkdirSync(path.join(target, "cli/db"), { recursive: true });
+  fs.writeFileSync(path.join(target, "cli/db/db.sqlite"), "新机库数据"); // sqlite 冲突，不在 .md/.json 支持范围
+  const plan = await planApply(pkg, target, "incremental", [], () => {}, ["cli/db/db.sqlite"]);
+  const item = plan.items.find((i) => i.target_rel === "cli/db/db.sqlite")!;
+  expect(item.action).toBe("keep"); // 增量模式落回保留，不出现 merge
+});

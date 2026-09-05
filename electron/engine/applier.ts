@@ -7,10 +7,11 @@ import fs from "node:fs";
 import fsp from "node:fs/promises";
 import path from "node:path";
 import { AppError } from "./error";
+import { mergeStrategyFor, mergeText, readStrictUtf8, type MergePreview } from "./merge";
 import type { ProgressFn } from "./progress";
 import { readManifest, type Manifest } from "./packer";
 import { sha256File } from "./scanner";
-import { entryStream, openZip, requireEntry } from "./zipio";
+import { entryBuffer, entryStream, openZip, requireEntry, type OpenedZip } from "./zipio";
 
 /** 备份根目录名（位于解包目标根下）。 */
 export const BACKUP_DIR = "zam-backups";
@@ -20,8 +21,14 @@ export const BACKUP_KEEP = 5;
 /** 解包模式（序列化契约：小写字面量）。 */
 export type ApplyMode = "overwrite" | "incremental";
 
-/** 单文件动作判定（序列化契约：snake_case 字面量）。 */
-export type ActionKind = "create" | "skip_same" | "replace" | "keep";
+/** 单文件动作判定（序列化契约：snake_case 字面量）。merge = 内容级合并（逐文件勾选）。 */
+export type ActionKind = "create" | "skip_same" | "replace" | "keep" | "merge";
+
+/** 合并动作的计划期信息（预览 + 合并结果哈希；执行时重算合并内容并校验此哈希）。 */
+export interface MergeInfo {
+  merged_sha256: string;
+  preview: MergePreview;
+}
 
 /** dry-run 计划中的单条动作。 */
 export interface PlanItem {
@@ -32,6 +39,8 @@ export interface PlanItem {
   action: ActionKind;
   /** 冲突文件当前目标侧哈希（仅冲突时有值，供 UI 展示差异）。 */
   target_sha256: string | null;
+  /** 仅 action="merge" 时有值：合并预览与结果哈希（被令牌覆盖，篡改即拒绝执行）。 */
+  merge?: MergeInfo | null;
 }
 
 /** dry-run 变更计划。 */
@@ -49,6 +58,8 @@ export interface ApplyPlan {
   /** 用户确认的冲突改判清单（增量模式）。执行时据此独立重放核对，
    *  不得从 items 反推（防计划被篡改后自我认证）。 */
   confirmed_overrides: string[];
+  /** 用户勾选"内容级合并"的冲突文件清单（仅 .md/.json 可合）。执行时一并独立重放核对。 */
+  merge_rel_paths?: string[];
   /** 执行前的备份清理提示（备份超限时非空）。 */
   backup_cleanup_hint: string | null;
 }
@@ -74,7 +85,13 @@ const ACTION_DEBUG: Record<ActionKind, string> = {
   skip_same: "SkipSame",
   replace: "Replace",
   keep: "Keep",
+  merge: "Merge",
 };
+
+/** 文本 SHA-256（合并预览哈希口径，UTF-8 编码）。 */
+function sha256Text(text: string): string {
+  return createHash("sha256").update(text, "utf8").digest("hex");
+}
 
 /** 打开并完整校验包（manifest 解析 + 逐文件哈希校验）。
  *  性能约束：归档全程只打开一次——每文件重开归档会各自完整解析一遍中央目录，
@@ -114,7 +131,8 @@ function packageDigest(manifest: Manifest): string {
   return hash.digest("hex");
 }
 
-/** 计划摘要令牌：包摘要 + 模式 + 目标根目录 + 全部动作的哈希。任一要素变化令牌即失效。 */
+/** 计划摘要令牌：包摘要 + 模式 + 目标根目录 + 全部动作（含合并结果哈希）的再哈希。
+ *  任一要素变化令牌即失效。 */
 function planToken(packageDigest: string, mode: ApplyMode, targetRoot: string, items: PlanItem[]): string {
   const hash = createHash("sha256");
   hash.update(packageDigest, "utf8");
@@ -124,6 +142,10 @@ function planToken(packageDigest: string, mode: ApplyMode, targetRoot: string, i
     hash.update(it.target_rel, "utf8");
     hash.update(it.sha256, "utf8");
     hash.update(ACTION_DEBUG[it.action], "utf8");
+    if (it.merge) {
+      hash.update("merge:", "utf8");
+      hash.update(it.merge.merged_sha256, "utf8");
+    }
   }
   return hash.digest("hex");
 }
@@ -183,54 +205,100 @@ async function checkBackupRetention(targetRoot: string): Promise<string | null> 
 /** 生成 dry-run 计划（纯只读：只读包与目标目录，不写任何文件）。
  *  `targetRoot`：解包目标根目录（显式指定；UI 默认按档案推导为本机资产目录）。
  *  `conflictOverrides`：增量模式下把指定 target_rel 的冲突改判为"备份后替换"；
- *  覆盖模式忽略该参数（全部冲突本来就是替换）。 */
+ *  覆盖模式忽略该参数（全部冲突本来就是替换）。
+ *  `mergeRelPaths`：用户勾选"内容级合并"的冲突文件（仅 .md/.json；勾选后冲突动作
+ *  改为 merge，并在计划中携带合并预览与结果哈希）。清单为空时不打开归档、行为
+ *  与无合并概念的历史版本完全一致。 */
 export async function makePlan(
   packagePath: string,
   manifest: Manifest,
   targetRoot: string,
   mode: ApplyMode,
   conflictOverrides: string[],
+  mergeRelPaths: string[] = [],
 ): Promise<ApplyPlan> {
   const digest = packageDigest(manifest);
-  const items: PlanItem[] = [];
-  for (const mf of manifest.files) {
-    const abs = safeJoin(targetRoot, mf.target_rel);
-    // 目标哈希只算一次（存在时），判定与展示复用
-    const existingSha = (await fsp.stat(abs).then((s) => (s.isFile() ? s : null)).catch(() => null))
-      ? await sha256File(abs)
-      : null;
-    let action: ActionKind;
-    if (existingSha === null) {
-      action = "create";
-    } else if (existingSha === mf.sha256) {
-      action = "skip_same";
-    } else if (mode === "overwrite") {
-      action = "replace";
-    } else {
-      action = conflictOverrides.includes(mf.target_rel) ? "replace" : "keep";
+  const wantMerge = new Set(mergeRelPaths);
+  // 仅在确有合并请求时打开归档读取包内文本（合并预览需要包侧内容）
+  const opened = wantMerge.size > 0 ? await openZip(packagePath, "包损坏") : null;
+  try {
+    const items: PlanItem[] = [];
+    for (const mf of manifest.files) {
+      const abs = safeJoin(targetRoot, mf.target_rel);
+      // 目标哈希只算一次（存在时），判定与展示复用
+      const targetExists = (await fsp.stat(abs).then((s) => s.isFile()).catch(() => false));
+      const existingSha = targetExists ? await sha256File(abs) : null;
+      let action: ActionKind;
+      if (existingSha === null) {
+        action = "create";
+      } else if (existingSha === mf.sha256) {
+        action = "skip_same";
+      } else if (mode === "overwrite") {
+        action = "replace";
+      } else {
+        action = conflictOverrides.includes(mf.target_rel) ? "replace" : "keep";
+      }
+      // 合并改判：仅对"双方内容不同"的冲突文件；类型不支持或文本不合法时静默落回普通冲突动作
+      let mergeInfo: MergeInfo | null = null;
+      if (action === "keep" || action === "replace") {
+        const mergeInfoOrNull = await tryBuildMerge(opened, mf.target_rel, abs, wantMerge);
+        if (mergeInfoOrNull) {
+          action = "merge";
+          mergeInfo = mergeInfoOrNull;
+        }
+      }
+      items.push({
+        target_rel: mf.target_rel,
+        category: mf.category,
+        sha256: mf.sha256,
+        size: mf.size,
+        action,
+        target_sha256: existingSha,
+        merge: mergeInfo,
+      });
     }
-    items.push({
-      target_rel: mf.target_rel,
-      category: mf.category,
-      sha256: mf.sha256,
-      size: mf.size,
-      action,
-      target_sha256: existingSha,
-    });
+    const targetRootStr = targetRoot;
+    const token = planToken(digest, mode, targetRootStr, items);
+    const backupCleanupHint = await checkBackupRetention(targetRoot);
+    return {
+      package_path: packagePath,
+      target_root: targetRootStr,
+      mode,
+      package_digest: digest,
+      items,
+      plan_token: token,
+      confirmed_overrides: conflictOverrides,
+      merge_rel_paths: mergeRelPaths,
+      backup_cleanup_hint: backupCleanupHint,
+    };
+  } finally {
+    opened?.close();
   }
-  const targetRootStr = targetRoot;
-  const token = planToken(digest, mode, targetRootStr, items);
-  const backupCleanupHint = await checkBackupRetention(targetRoot);
-  return {
-    package_path: packagePath,
-    target_root: targetRootStr,
-    mode,
-    package_digest: digest,
-    items,
-    plan_token: token,
-    confirmed_overrides: conflictOverrides,
-    backup_cleanup_hint: backupCleanupHint,
-  };
+}
+
+/** 尝试为勾选合并的冲突文件构建合并信息；不满足条件（未勾选/类型不支持/非 UTF-8/BOM/
+ *  JSON 解析失败）返回 null，调用方落回普通冲突动作。确定性：同一对输入同结果。 */
+async function tryBuildMerge(
+  opened: OpenedZip | null,
+  targetRel: string,
+  targetAbs: string,
+  wantMerge: Set<string>,
+): Promise<MergeInfo | null> {
+  if (!opened || !wantMerge.has(targetRel)) return null;
+  const strategy = mergeStrategyFor(targetRel);
+  if (!strategy) return null;
+  try {
+    const entry = requireEntry(opened, `payload/${targetRel}`, "包内缺少 ");
+    const pkgBytes = await entryBuffer(opened.zip, entry);
+    const targetBytes = await fsp.readFile(targetAbs);
+    const t = readStrictUtf8(targetBytes);
+    const p = readStrictUtf8(pkgBytes);
+    if (!t.ok || !p.ok) return null;
+    const result = mergeText(strategy, t.text, p.text);
+    return { merged_sha256: sha256Text(result.text), preview: result.preview };
+  } catch {
+    return null;
+  }
 }
 
 /** dry-run 计划入口：打开校验包 + 生成计划（纯只读）。 */
@@ -240,9 +308,10 @@ export async function planApply(
   mode: ApplyMode,
   conflictOverrides: string[],
   progress: ProgressFn,
+  mergeRelPaths: string[] = [],
 ): Promise<ApplyPlan> {
   const manifest = await openPackage(packagePath, progress);
-  return makePlan(packagePath, manifest, targetRoot, mode, conflictOverrides);
+  return makePlan(packagePath, manifest, targetRoot, mode, conflictOverrides, mergeRelPaths);
 }
 
 /** 执行已确认的计划到指定目标根（executeApply 的可指定目标版本，测试与自定义解包路径共用）。
@@ -267,16 +336,16 @@ export async function executeApplyTo(
   if (itemsDigest !== plan.plan_token) {
     throw new AppError("plan_not_confirmed", "计划令牌校验失败：计划内容与令牌不符，请重新生成计划");
   }
-  // 第二道：独立重放核对
-  const replay = await makePlan(plan.package_path, manifest, targetRoot, plan.mode, plan.confirmed_overrides);
+  // 第二道：独立重放核对（合并清单一并重放——合并预览哈希随之重算，包或目标变化即失配）
+  const replay = await makePlan(plan.package_path, manifest, targetRoot, plan.mode, plan.confirmed_overrides, plan.merge_rel_paths ?? []);
   if (replay.plan_token !== plan.plan_token || replay.package_digest !== plan.package_digest) {
     throw new AppError("plan_not_confirmed", "计划令牌校验失败：包或目标已变化，请重新生成计划");
   }
 
-  // 备份目录（仅当存在 Replace 动作时创建）
-  const hasReplace = plan.items.some((i) => i.action === "replace");
+  // 备份目录（仅当存在 Replace / Merge 这类覆盖性写入动作时创建）
+  const hasOverwrite = plan.items.some((i) => i.action === "replace" || i.action === "merge");
   const stamp = localStamp();
-  const backupDir = hasReplace ? path.join(targetRoot, BACKUP_DIR, stamp) : null;
+  const backupDir = hasOverwrite ? path.join(targetRoot, BACKUP_DIR, stamp) : null;
   if (backupDir) {
     await fsp.mkdir(backupDir, { recursive: true });
   }
@@ -316,6 +385,20 @@ export async function executeApplyTo(
         }
         verified += 1;
         executed.push({ target_rel: item.target_rel, action: item.action, status: "ok" });
+      } else if (item.action === "merge") {
+        // 内容级合并：备份原文件 → 重算合并（确定性）→ 校验与计划预览一致 → 写入 → 复验
+        const abs = safeJoin(targetRoot, item.target_rel);
+        const backupPath = path.join(targetRoot, BACKUP_DIR, stamp, item.target_rel);
+        await fsp.mkdir(path.dirname(backupPath), { recursive: true });
+        await fsp.copyFile(abs, backupPath);
+        const mergedText = await recomputeMerge(item, opened, abs);
+        await fsp.writeFile(abs, Buffer.from(mergedText, "utf8"));
+        const sha = await sha256File(abs);
+        if (item.merge && sha !== item.merge.merged_sha256) {
+          throw new AppError("hash_mismatch", `写入后复验失败：${item.target_rel}（期望 ${item.merge.merged_sha256}，实际 ${sha}），已停止后续写入`);
+        }
+        verified += 1;
+        executed.push({ target_rel: item.target_rel, action: item.action, status: "ok" });
       } else if (item.action === "skip_same") {
         verified += 1;
         executed.push({ target_rel: item.target_rel, action: item.action, status: "skipped" });
@@ -339,6 +422,28 @@ export async function executeApplyTo(
 /** 执行已确认的计划（目标根取 plan.target_root）。 */
 export function executeApply(plan: ApplyPlan, progress: ProgressFn): Promise<ApplyReport> {
   return executeApplyTo(plan, plan.target_root, progress);
+}
+
+/** 执行期重算合并内容并校验与计划预览一致（确定性合并的性质）：
+ *  包被调包、目标文件在计划后变化、或不再是可合并文本，都会在此拒绝。 */
+async function recomputeMerge(item: PlanItem, opened: OpenedZip, targetAbs: string): Promise<string> {
+  if (!item.merge) throw new AppError("internal", "合并动作缺少合并信息");
+  const strategy = mergeStrategyFor(item.target_rel);
+  if (!strategy) throw new AppError("internal", `合并动作类型不支持：${item.target_rel}`);
+  const entry = requireEntry(opened, `payload/${item.target_rel}`, "包内缺少 ");
+  const pkgBytes = await entryBuffer(opened.zip, entry);
+  const targetBytes = await fsp.readFile(targetAbs);
+  const t = readStrictUtf8(targetBytes);
+  const p = readStrictUtf8(pkgBytes);
+  if (!t.ok || !p.ok) {
+    throw new AppError("plan_not_confirmed", "合并失败：目标或包内文件不再是可合并文本，请重新生成计划");
+  }
+  const result = mergeText(strategy, t.text, p.text);
+  const sha = sha256Text(result.text);
+  if (sha !== item.merge.merged_sha256) {
+    throw new AppError("plan_not_confirmed", "合并结果与计划不一致：包或目标已变化，请重新生成计划");
+  }
+  return result.text;
 }
 
 /** 本地时间戳（与 Rust chrono Local "%Y%m%d-%H%M%S" 一致）。 */
