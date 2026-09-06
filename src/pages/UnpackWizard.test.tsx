@@ -1,5 +1,5 @@
 // 解包向导组件测试：dry-run 四组渲染与冲突改判交互 + 路径适配在执行之后的第 6 步。
-// jsdom 无 __TAURI_INTERNALS__，自动走内置 mock；apiCall 包 vi.fn 断言重新 plan。
+// jsdom 无桌面桥（window.agentferry），自动走内置 mock；apiCall 包 vi.fn 断言重新 plan。
 import "@testing-library/jest-dom/vitest";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";

@@ -1,5 +1,5 @@
 // 设置页组件测试：设置加载展示 + 「浏览…」目录选择回填 + 保存调用契约。
-// jsdom 无 __TAURI_INTERNALS__，自动走内置 mock；apiCall/pickDirectory 包 vi.fn 以便断言。
+// jsdom 无桌面桥（window.agentferry），自动走内置 mock；apiCall/pickDirectory 包 vi.fn 以便断言。
 import "@testing-library/jest-dom/vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";

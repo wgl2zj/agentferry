@@ -4,18 +4,17 @@ agent 软件个人资产迁移工具：把 ZCode 等 agent 软件在使用中积
 
 ## 技术栈
 
-- 后端引擎：Rust（纯逻辑模块，可独立 `cargo test`）
-- 桌面壳：Tauri v2
+- 后端引擎：TypeScript（Node API，运行于 Electron 主进程，纯逻辑可独立 vitest）
+- 桌面壳：Electron（contextBridge 受控 IPC + 系统窗口）
 - 前端：React 19 + TypeScript + Vite，浅色系设计令牌（`src/styles/tokens.css` 唯一来源）
 
 ## 开发
 
 ```bash
-npm install            # 前端依赖
-npm run tauri dev      # 桌面应用开发模式
-npm run build          # 前端构建（tsc 严格模式）
-npm test               # 前端 vitest
-cargo test --manifest-path src-tauri/Cargo.toml   # Rust 测试（单元+集成）
+npm install            # 全部依赖
+npm run dev:electron   # 桌面应用开发模式（vite + electron 联动）
+npm run build          # 前端构建 + 主进程/预加载打包
+npm test               # 全部 vitest（引擎 + 前端）
 ```
 
 ## 安全设计（铁律）

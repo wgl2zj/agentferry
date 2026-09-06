@@ -1,5 +1,5 @@
 // 打包向导组件测试：步骤前进/回退流转 + 阻断类别横幅动作 + 多档案切换与 token 警告展示。
-// jsdom 无 __TAURI_INTERNALS__，自动走内置 mock；apiCall 包一层 vi.fn 以便断言调用。
+// jsdom 无桌面桥（window.agentferry），自动走内置 mock；apiCall 包一层 vi.fn 以便断言调用。
 import "@testing-library/jest-dom/vitest";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";

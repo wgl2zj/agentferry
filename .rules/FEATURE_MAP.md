@@ -49,10 +49,10 @@
 ## 模块条目
 
 > 五个核心模块已建立（2026-08-17）。测试锁定标注见各条；预期均经代码核实。
-> **架构迁移（2026-09-05）**：引擎已从 Rust（src-tauri/）整体迁移为 TypeScript（electron/engine/，
+> **架构迁移（2026-09-05，src-tauri 已于 2026-09-06 移除）**：引擎已从 Rust（src-tauri/）整体迁移为 TypeScript（electron/engine/，
 > Electron 主进程 + IPC 命令层 electron/commands.ts + main.ts），前端 React 组件层零改动（仅
-> ipc.ts/mock.ts 桥接实现替换）；全部 Rust 测试逐条翻译为同名 vitest 测试（npm test，94 用例），
-> 各条目中标注的测试名继续有效，测试文件为 electron/engine/*.test.ts。src-tauri/ 冻结待移除。
+> ipc.ts/mock.ts 桥接实现替换）；全部 Rust 测试逐条翻译为同名 vitest 测试（npm test，111 用例），
+> 各条目中标注的测试名继续有效，测试文件为 electron/engine/*.test.ts。
 
 ## 资产档案（profile）
 
