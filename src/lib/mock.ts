@@ -11,6 +11,7 @@
 import { useEffect, useRef } from "react";
 import { codexProfile } from "../../electron/engine/profile/codex";
 import { claudeProfile } from "../../electron/engine/profile/claude";
+import { mergeStrategyFor } from "../../electron/engine/merge";
 import { strategyStr, tierStr, type AssetCategory } from "../../electron/engine/profile/types";
 import { zcodeProfile } from "../../electron/engine/profile/zcode";
 import {
@@ -433,9 +434,9 @@ function mockPlan(
     }
     if (mod === 3) {
       // 冲突：目标已有不同内容。覆盖模式默认替换；增量模式默认保留，可被 overrides 改判；
-      // 勾选"内容合并"且类型支持（.md/.json）→ 合并（携带预览）。
+      // 勾选"内容合并"且类型支持（引擎 mergeStrategyFor 同源判定，.md/.json）→ 合并（携带预览）。
       const conflicted = overrides.includes(f.target_rel);
-      const canMerge = wantMerge.has(f.target_rel) && /\.(md|markdown|json)$/i.test(f.target_rel);
+      const canMerge = wantMerge.has(f.target_rel) && mergeStrategyFor(f.target_rel) !== null;
       const action =
         canMerge ? "merge" : mode === "overwrite" ? "replace" : conflicted ? "replace" : "keep";
       const merge = canMerge

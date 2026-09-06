@@ -5,7 +5,7 @@
 import { app, BrowserWindow, dialog, ipcMain, Menu } from "electron";
 import path from "node:path";
 import * as commands from "./commands";
-import { toAppError } from "./engine/error";
+import { AppError, toAppError } from "./engine/error";
 import { bridge, type ProgressPayload } from "./engine/progress";
 import type { ApplyPlan, ApplyMode } from "./engine/applier";
 import type { Settings } from "./protocol";
@@ -94,7 +94,12 @@ function registerCommands(): void {
     commands.openPackageCmd(str(args.path), bridge(emitProgress, "open", "verifying")),
   );
   handle(COMMANDS.planApply, (args) => {
-    const mode: ApplyMode = str(args.mode) === "overwrite" ? "overwrite" : "incremental";
+    const rawMode = str(args.mode);
+    if (rawMode !== "overwrite" && rawMode !== "incremental") {
+      // 非法 mode 显式拒绝而非静默归一（code review 2026-09-06）
+      throw new AppError("internal", `未知的恢复模式：${rawMode}`);
+    }
+    const mode: ApplyMode = rawMode;
     return commands.planApplyCmd(
       {
         path: str(args.path),
@@ -106,9 +111,14 @@ function registerCommands(): void {
       bridge(emitProgress, "plan", "planning"),
     );
   });
-  handle(COMMANDS.executeApply, (args) =>
-    commands.executeApplyCmd(args.plan as ApplyPlan, bridge(emitProgress, "apply", "applying")),
-  );
+  handle(COMMANDS.executeApply, (args) => {
+    // plan 形状防御：畸形对象在引擎令牌重放前就显式拒绝（引擎侧令牌校验仍是主防线）
+    const plan = args.plan as ApplyPlan | undefined;
+    if (!plan || typeof plan !== "object" || !Array.isArray(plan.items) || typeof plan.plan_token !== "string") {
+      throw new AppError("internal", "执行计划格式不合法，请重新生成计划");
+    }
+    return commands.executeApplyCmd(plan, bridge(emitProgress, "apply", "applying"));
+  });
   handle(COMMANDS.detectPathMappings, (args) =>
     commands.detectPathMappingsCmd(str(args.path), optStr(args.targetRoot)),
   );
@@ -134,7 +144,8 @@ function registerCommands(): void {
   // 系统对话框（对应 tauri-plugin-dialog；取消返回 null，与原契约一致）
   ipcMain.handle("dialog:pickDirectory", async (event, current?: unknown): Promise<string | null> => {
     const win = BrowserWindow.fromWebContents(event.sender) ?? mainWindow;
-    const result = await dialog.showOpenDialog(win!, {
+    if (!win) throw new AppError("internal", "没有可用的应用窗口");
+    const result = await dialog.showOpenDialog(win, {
       properties: ["openDirectory"],
       ...(typeof current === "string" && current.trim() ? { defaultPath: current.trim() } : {}),
     });
@@ -142,7 +153,8 @@ function registerCommands(): void {
   });
   ipcMain.handle("dialog:pickPackage", async (event, current?: unknown): Promise<string | null> => {
     const win = BrowserWindow.fromWebContents(event.sender) ?? mainWindow;
-    const result = await dialog.showOpenDialog(win!, {
+    if (!win) throw new AppError("internal", "没有可用的应用窗口");
+    const result = await dialog.showOpenDialog(win, {
       properties: ["openFile"],
       filters: [{ name: "资产摆渡迁移包", extensions: ["zam"] }],
       ...(typeof current === "string" && current.trim() ? { defaultPath: current.trim() } : {}),

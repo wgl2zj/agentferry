@@ -30,14 +30,16 @@ async function tempDir(): Promise<string> {
   return dir;
 }
 
-/** 前端契约锁定：跨 IPC 枚举为前端类型镜像（src/lib/ipc.ts）的小写字面量。 */
+/** 前端契约锁定：跨 IPC 枚举为小写字面量。前端镜像（src/lib/ipc.ts）已改为从本模块
+ *  re-export（单一来源，无手写漂移面），故本测试直接锁定引擎枚举集合本身；
+ *  新增动作（如 merge）必须在此显式登记，防止枚举面无守护扩张。 */
 describe("applier_enum_serialization_matches_frontend_contract", () => {
-  it("ApplyMode/ActionKind 序列化字面量与前端镜像一致", () => {
+  it("ApplyMode/ActionKind 序列化字面量与前端镜像（re-export 自引擎）一致", () => {
     const modes: ApplyMode[] = ["overwrite", "incremental"];
-    const actions: ActionKind[] = ["create", "skip_same", "replace", "keep"];
+    const actions: ActionKind[] = ["create", "skip_same", "replace", "keep", "merge"];
     expect(modes).toEqual(["overwrite", "incremental"]);
-    expect(actions).toEqual(["create", "skip_same", "replace", "keep"]);
-    expect(JSON.parse(JSON.stringify({ action: "skip_same" satisfies PlanItem["action"] }))).toEqual({ action: "skip_same" });
+    expect(actions).toEqual(["create", "skip_same", "replace", "keep", "merge"]);
+    expect(JSON.parse(JSON.stringify({ action: "merge" satisfies PlanItem["action"] }))).toEqual({ action: "merge" });
   });
 });
 

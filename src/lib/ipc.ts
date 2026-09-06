@@ -30,15 +30,11 @@ function bridge(): AgentFerryBridge {
   return b;
 }
 
-// ---- 数据类型镜像（引擎侧 serde/JSON 序列化，字段保持 snake_case；单一来源见注释路径）----
+// ---- 数据类型镜像（引擎侧单一来源经 re-export 引入，杜绝手写镜像漂移；
+//      snake_case 字段保持不变；code review 2026-09-06 撤销手写 ActionKind 镜像）----
 
-export type FileKind = "text" | "binary" | "sqlite";
-export type ApplyMode = "overwrite" | "incremental";
-export type ActionKind = "create" | "skip_same" | "replace" | "keep";
-export type CategoryStatus =
-  | { status: "ready" }
-  | { status: "blocked"; detail: string }
-  | { status: "missing" };
+export type { FileKind, CategoryStatus } from "../../electron/engine/scanner";
+export type { ApplyMode, ActionKind } from "../../electron/engine/applier";
 
 export type { ScannedFile } from "../../electron/engine/scanner";
 export type { CategoryReport, ScanReport } from "../../electron/engine/scanner";

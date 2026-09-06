@@ -194,38 +194,35 @@ export function UnpackWizard(props: { onExit: () => void }) {
     }
   };
 
-  /** 冲突行三态改判：保留目标 / 备份后替换 / 内容合并（仅 .md/.json 可选合并），改判触发重新 plan。 */
+  /** 冲突行三态改判：保留目标 / 备份后替换 / 内容合并（仅 .md/.json 可选合并），改判触发重新 plan。
+   *  副作用（runPlan）保持在 setState updater 之外——updater 必须纯函数，
+   *  StrictMode 下重复执行会双发 plan 请求（code review 2026-09-06）。 */
   const setConflictChoice = (targetRel: string, choice: "keep" | "replace" | "merge") => {
-    setConflictChoiceState((prev) => {
-      const ov = new Set(prev.ov);
-      const mg = new Set(prev.mg);
-      if (choice === "replace") {
-        ov.add(targetRel);
-        mg.delete(targetRel);
-      } else if (choice === "merge") {
-        mg.add(targetRel);
-        ov.delete(targetRel);
-      } else {
-        ov.delete(targetRel);
-        mg.delete(targetRel);
-      }
-      runPlan(ov, mg);
-      return { ov, mg };
-    });
+    const ov = new Set(conflictChoice.ov);
+    const mg = new Set(conflictChoice.mg);
+    if (choice === "replace") {
+      ov.add(targetRel);
+      mg.delete(targetRel);
+    } else if (choice === "merge") {
+      mg.add(targetRel);
+      ov.delete(targetRel);
+    } else {
+      ov.delete(targetRel);
+      mg.delete(targetRel);
+    }
+    setConflictChoiceState({ ov, mg });
+    runPlan(ov, mg);
   };
 
   const setAllConflicts = (toReplace: boolean) => {
     const conflicts = (plan?.items ?? []).filter(
       (i) => i.action === "replace" || i.action === "keep",
     );
-    const next = toReplace ? new Set(conflicts.map((c) => c.target_rel)) : new Set<string>();
-    setConflictChoiceState((prev) => {
-      const mg = new Set(prev.mg);
-      for (const c of conflicts) mg.delete(c.target_rel);
-      const ov = next;
-      runPlan(ov, mg);
-      return { ov, mg };
-    });
+    const ov = toReplace ? new Set(conflicts.map((c) => c.target_rel)) : new Set<string>();
+    const mg = new Set(conflictChoice.mg);
+    for (const c of conflicts) mg.delete(c.target_rel);
+    setConflictChoiceState({ ov, mg });
+    runPlan(ov, mg);
   };
 
   const groups = useMemo(() => {
