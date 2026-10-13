@@ -36,7 +36,7 @@
 
 ## 工具链配置附录（docs/agents/）
 
-- 【强制】`docs/agents/*.md` 是 engineering skills（to-tickets / to-spec / code-review 等）的工具链配置附录，描述"issues 存哪、domain docs 在哪"——不是行为纪律细则，不与 `.rules/` 重复。
+- 【强制】`docs/agents/*.md` 是 engineering skills（to-tickets / triage / to-spec / code-review 等）的工具链配置附录，描述"issues 存哪、domain docs 在哪、triage label 词汇"——不是行为纪律细则，不与 `.rules/` 重复。
 - 【强制】`docs/agents/*.md` 与 AGENTS.md 的 `## Agent skills` section 同属唯一权威源；如未来引入镜像（如 `CLAUDE.md`），由镜像脚本同步，不在镜像里单独维护第二份工具链配置。
 
 ### 领域文档职责边界（三者不重复维护同一事实）

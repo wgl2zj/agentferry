@@ -62,7 +62,7 @@
 | 3 | 普通代码修改/测试 | 修改源码或测试代码 | `.rules/CODING_STANDARDS.md`（编码与测试规则）全文 |
 | 4 | 前端/UI 设计 | 修改组件、样式或用户可见的脚本，新增页面、组件、交互反馈或可访问性调整 | `.rules/UI_DESIGN.md`（UI 设计规则）全文；同时加载编码规则 |
 | 5 | 纯文档/治理配置修改 | 只改 Markdown、规则、索引或不影响程序运行的治理配置 | `.rules/DOCUMENTATION.md`（文档治理规则）全文 |
-| 6 | issue/工具链任务 | 创建 issue、拆 ticket、发 spec | 读 `docs/agents/issue-tracker.md`；配合 to-tickets / to-spec skills；同时遵循本文件通用铁律 |
+| 6 | issue/工具链任务 | 创建 issue、拆 ticket、triage、发 spec | 读 `docs/agents/issue-tracker.md` 与 `docs/agents/triage-labels.md`；配合 to-tickets / triage / to-spec skills；同时遵循本文件通用铁律 |
 
 兜底：
 
@@ -113,6 +113,10 @@
 ### Issue tracker
 
 Issues 与 specs 以 Markdown 文件存放在仓库 `.scratch/` 目录（本地文件 tracker，不依赖远程服务；未来开源时可迁移到 GitHub Issues）。详见 `docs/agents/issue-tracker.md`。
+
+### Triage labels
+
+triage 技能的五个标准分诊角色（needs-triage / needs-info / ready-for-agent / ready-for-human / wontfix）映射到 issue 文件顶部 `Status:` 行的取值。详见 `docs/agents/triage-labels.md`。
 
 ### Domain docs
 

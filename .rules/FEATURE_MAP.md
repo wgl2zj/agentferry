@@ -130,7 +130,7 @@
 4. **WAL 拒绝**：选中 Blocked 类别 → `SourceNotQuiet` 错误；跳过=不选它，警告写入 manifest.warnings。
 5. **类别 pack_warning 入清单**（授权例外 #1）：选中携带 pack_warning 的类别时其确切字符串追加进 manifest.warnings（调用方警告在前）；None 零影响、zcode 行为不变（三道测试锁定，见 profile 条目）。
 6. **哈希完整性**：包内文件读回哈希 == manifest 记录（测试 `packer_roundtrip_manifest_and_hashes`）。
-7. **进度回调**：引擎回调次数 == 文件数（UI 进度条数据源）；Tauri 事件层经 `ProgressThrottle` 50ms 节流（首条与末条必发，进度条能启动并到 100%；测试 `progress_throttle_drops_close_events_but_keeps_first_and_last`）。
+7. **进度回调**：引擎回调次数 == 文件数（UI 进度条数据源）；引擎事件通道（Electron IPC progress 事件）经 `ProgressThrottle` 50ms 节流（首条与末条必发，进度条能启动并到 100%；测试 `progress_throttle_drops_close_events_but_keeps_first_and_last`）。
 8. **只扫选中类别**（性能，2026-08-18）：打包内部经 `scanner.scanSelected` 只盘点选中类别——未选中类别零触碰（枚举/元数据/内容读取都不发生），自定义小档不为未选中大会话库付扫描成本；选中类别的 WAL 阻断仍生效（测试 `scanner_scan_selected_only_returns_selected_categories`、耗时锁 `packer_pack_time_ignores_unselected_categories`）。UI 盘点页的 `scan_assets` 仍是全类别含哈希（展示完整性基线），两者语义不同。
 9. **哈希在写包时流式计算**（性能，2026-08-18）：扫描期不算哈希（sha256 置空），写 zip 时对所写内容边写边算——源文件只读一遍，且哈希即所写内容，无"清单与包内容不一致"窗口。
 10. **SQLite 条目 Stored 存储**（decide-k3 拍板方案 B，2026-08-18）：sqlite 条目不压缩（Stored），其余 Deflated——sqlite 压缩率低且 deflate 是打包耗时大头；判定只走 FileKind 纯函数（packer.compressEntry），不加大小阈值；manifest 不加压缩方法字段，新旧包互兼容（测试 `packer_sqlite_stored_others_deflated`、`applier_reads_legacy_deflated_sqlite_package`）。包体积预期：sqlite 部分不再缩小，属预期非回归。
@@ -229,5 +229,5 @@
 
 ### 行为预期（可验证，已逐条核实代码）
 1. **首用默认**：无 settings.json 时，家目录下存在 `Downloads` 目录则作为默认输出目录，否则空（测试 `commands_default_output_dir_requires_existing_downloads` 锁定；不凭空造目录）。
-2. **目录选择弹窗**：设置页与打包向导的「浏览…」弹系统目录选择框（tauri-plugin-dialog），取消不改动；选中后设置页直接回填、打包向导拼回建议文件名。解包向导第 1 步「浏览…」弹系统文件选择框（仅 .zam 过滤），取消不改动。浏览器演示模式无系统对话框，pickDirectory/pickPackage 返回演示路径。
+2. **目录选择弹窗**：设置页与打包向导的「浏览…」弹系统目录选择框（Electron dialog），取消不改动；选中后设置页直接回填、打包向导拼回建议文件名。解包向导第 1 步「浏览…」弹系统文件选择框（仅 .zam 过滤），取消不改动。浏览器演示模式无系统对话框，pickDirectory/pickPackage 返回演示路径。
 3. **保存**：写入 app_config_dir/settings.json；打包向导输出路径用该目录预填（空目录时只预填文件名）。
