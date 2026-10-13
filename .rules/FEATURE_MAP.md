@@ -58,31 +58,30 @@
 
 **主代码**：`electron/engine/profile/types.ts`（类型与档位纯逻辑）、`electron/engine/profile/runtime.ts`（家目录定位）、`electron/engine/profile/zcode.ts`、`electron/engine/profile/codex.ts`、`electron/engine/profile/claude.ts`、`electron/engine/profile/index.ts`（注册中心）
 **模型/数据**：`Profile` → `AssetCategory`（id/tier/strategy/rule/pack_warning）→ `PathRule`（File/Dir/Many）
-**关联决策**：spec 决策 2（数据驱动）；2026-08-17 决策（decide-k3）：凭据混配置照迁+具体警告、一档案一包、次要归档全量定性
+**关联决策**：spec 决策 2（数据驱动）；2026-08-17 决策（decide-k3）：凭据混配置照迁+具体警告、一档案一包、次要归档全量定性；2026-10-13 spec（`.scratch/zcode-v2/spec.md`）：档案 v2（26 类别，定性以 ZCode 官方存储目录清单为权威）+ 产品收窄仅 ZCode
 
 ### 一句话定位
-描述"一个 agent 软件的资产长什么样"，scanner/packer/applier/pathfix 全部面向它编程；加新软件 = 加档案文件。
+描述"ZCode 的个人资产长什么样"，scanner/packer/applier/pathfix 全部面向它编程；codex/claude 档案定义保留仅为旧迁移包解包兼容（2026-10-13 收窄后不再是"加新软件 = 加档案文件"的入口）。
 
 ### 用户入口
 | 入口 | 能做什么 |
 |---|---|
-| 前端打包向导① | 选择档案（zcode/codex/claude）、展示档案与默认根目录 |
+| 前端打包向导① | 选择档案（仅 ZCode 一个）、展示档案与默认根目录 |
 
-### 行为预期（可验证，已逐条核实代码）
-1. **档位解析**：Recommended 只含推荐档且过滤 Excluded；Full 含全部非排除；Custom 请求排除项被静默过滤（`category_ids_for_preset`，测试 `profile_preset_filters_categories` 锁定；codex/claude 各有同名档位测试）。
+### 行为预期（可验证，已逐条核实代码 2026-10-14）
+1. **档位解析**：Recommended 只含推荐档且过滤 Excluded；Full 含全部非排除；Custom 请求排除项被静默过滤（`category_ids_for_preset`，测试 `profile_preset_filters_categories` 锁定；codex/claude 数据档案各有同名档位直测：`codex_preset_filters_categories`、`claude_preset_filters_categories`）。
 2. **排除类别**（凭据/缓存）tier 字段无意义，任何档位都不可选入包。
-3. **三档案注册**（2026-08-17 起）：zcode（15 类别）/ codex（15）/ claude（10），`list_profiles` 返回 3 个（测试 `commands_list_profiles_returns_full_category_table` 锁定）；默认根映射 `~/.zcode`、`~/.codex`、`~/.claude`，解包目标按包内档案推导（测试 `commands_resolve_target_root_derives_codex_home` 锁定）。
-4. **类别级打包警告 pack_warning**（经决策者授权的 packer 增量例外 #1）：codex main_config 与 claude settings 携带具体 token 字段名警告，packer 追加入 manifest.warnings（调用方警告在前）；前端确认页与 manifest 同源展示（list_profiles 同一字符串）。zcode 档案无该字段 → warnings 行为零变化（回归锁 `packer_zcode_warnings_unchanged_by_pack_warning`、`packer_pack_warnings_enter_manifest`、`packer_none_pack_warning_adds_nothing`）。
+3. **注册中心仅 zcode**（2026-10-13 收窄，spec 决策 1）：`list_profiles` 只返回 zcode 一个档案，v2 共 26 类别 = 推荐档 17 + 完整档 7 + 排除 2 类承载（测试 `commands_list_profiles_returns_full_category_table` 锁定计数、档位与类别 id 全集）；scan_assets/pack_assets 对 codex/claude 一律报 path_setup 错误（同测试反向断言）；codex/claude 档案定义保留在数据模块，仅供旧迁移包解包时按包内档案 id 推导目标根（`legacyProfileById`，默认根仍映射 `~/.codex`、`~/.claude`；测试 `commands_resolve_target_root_derives_codex_home_legacy_package` 锁定）。
+4. **v2 新类别策略**：三类含本机绝对路径的新配置（hooks_config/app_settings/provider_config）为 CopyTextNeedsPathAdapt（复制文本并做路径适配的策略），其余新类别纯复制（测试 `zcode_v2_new_categories_strategies`）；checkpoints/visualizations 归完整档（`commands_list_profiles_returns_full_category_table` 断言 tier=full）；caches 排除路径清单增补后仍被档位过滤排除（测试 `profile_preset_filters_categories` + `packer_excluded_never_enters_package`）。
+5. **类别级打包警告 pack_warning**（经决策者授权的 packer 增量例外 #1，凭据先例沿用）：zcode v2 两类内嵌凭据配置点名具体字段——provider_config（access.apiKey 嵌套字段）与 openviking_state（userKey），packer 追加入 manifest.warnings（调用方警告在前）；前端确认页与 manifest 同源展示（list_profiles 同一字符串）；不选它们时警告行为与 v1 逐字节一致（测试 `zcode_v2_credential_categories_carry_field_level_warning`、`packer_pack_warnings_enter_manifest`、`packer_zcode_warnings_unchanged_by_pack_warning` 锁定；codex/claude 既有 token 警告见下节，由 `codex_main_config_carries_token_warning`、`claude_settings_carries_token_warning` 锁定）。
 
-### Codex/Claude 档案关键定性（2026-08-17 实测勘察 + decide-k3 拍板）
-- **照迁+警告**（决策 1-A）：codex `config.toml`（含 experimental_bearer_token）、claude `settings.json`（含 ANTHROPIC_AUTH_TOKEN）整体迁移，警告写明具体字段名；真登录凭据（codex auth.json、claude config.json 的 primaryApiKey）仍排除。
-- **codex 排除**：750MB 级 logs_*.sqlite（+wal/shm）、plugins/.plugin-appserver（399M）、state_5.sqlite（运行状态）等 38 项；完整档含 sessions（345M）/archived_sessions/plugins_sources（路径适配）/session_index.jsonl（路径适配）等。
-- **claude 限制记录**：家目录 `~/.claude.json` 位于档案根之外（99% 运行统计、无凭据键），v1 不迁不收（决策 4）；projects/ 子目录名编码旧机绝对路径，历史原样迁入不重挂，新机不自动关联（写入类别 description）。
-- 两家 skills/ 均含指向 ~/.skills-manager 的外链技能，扫描跟随链接按实体收集（既有引擎能力）。
+### Codex/Claude 档案（旧包兼容承载，2026-10-13 收窄后）
+- 档案定义文件保留（`codex.ts`/`claude.ts`，数据模块零维护成本），**无任何打包/扫描入口**；唯一用途是旧迁移包解包时按包内档案推导目标根（见预期 3）。`.zam` 包清单格式版本（format_version）不变，新旧包互相兼容。
+- 2026-08-17 实测定性仍有效，供旧包解包对照：codex `config.toml`（含 experimental_bearer_token）与 claude `settings.json`（含 ANTHROPIC_AUTH_TOKEN）当年即按"照迁+具体字段警告"处理；真登录凭据（codex auth.json、claude config.json 的 primaryApiKey）当年即排除；claude 家目录 `~/.claude.json` 位于档案根之外、projects/ 子目录名编码旧机绝对路径不自动重挂（写入类别 description）；两家 skills/ 均含指向 ~/.skills-manager 的外链技能，扫描跟随链接按实体收集（既有引擎能力）。
 
 ### 反直觉/易误解（踩坑预警）
 - 曾有缺陷：Recommended 档过滤漏了 Excluded（credentials 的 tier 恰为 Recommended），导致打包报"排除项不得入包"。已修复并以测试锁定。
-- jsonl 曾被 kind_of 判为 Binary（2026-08-17 修复，经决策者授权的引擎例外 #2）：会使 CopyTextNeedsPathAdapt 类别的路径适配静默失效（pathfix 只处理 kind=text，pathfix.ts 双重门）；现有一致性锁测试遍历三档案 File 规则的路径适配类别断言 kind=Text。
+- jsonl 曾被 kind_of 判为 Binary（2026-08-17 修复，经决策者授权的引擎例外 #2）：会使 CopyTextNeedsPathAdapt 类别的路径适配静默失效（pathfix 只处理 kind=text，pathfix.ts 双重门）；现有一致性锁测试遍历三档案（zcode + 仅数据保留的 codex/claude）File 规则的路径适配类别断言 kind=Text，并显式断言 v2 三个新适配类别实际命中遍历（测试 `scanner_path_adapt_file_categories_are_text_kind`）。
 
 ## 资产扫描（scanner）
 
@@ -128,7 +127,7 @@
 2. **读源用物理路径**：链接内文件（外链技能）按扫描携带的物理源路径读取入包，不走 root.join(rel) 穿越链接（提权进程被拒 448、is_file 误判"源文件消失"，真实事故 2026-08-17；测试 `packer_packs_linked_sources_via_physical_path` 锁定）。
 3. **排除项不入包**：manifest 与 zip 物理条目均无凭据/缓存（测试 `packer_excluded_never_enters_package` 双重核验）。
 4. **WAL 拒绝**：选中 Blocked 类别 → `SourceNotQuiet` 错误；跳过=不选它，警告写入 manifest.warnings。
-5. **类别 pack_warning 入清单**（授权例外 #1）：选中携带 pack_warning 的类别时其确切字符串追加进 manifest.warnings（调用方警告在前）；None 零影响、zcode 行为不变（三道测试锁定，见 profile 条目）。
+5. **类别 pack_warning 入清单**（授权例外 #1）：选中携带 pack_warning 的类别时其确切字符串追加进 manifest.warnings（调用方警告在前）；None 零影响、zcode 不选凭据类别时警告行为与 v1 逐字节一致（测试锁定，见 profile 条目预期 5）。
 6. **哈希完整性**：包内文件读回哈希 == manifest 记录（测试 `packer_roundtrip_manifest_and_hashes`）。
 7. **进度回调**：引擎回调次数 == 文件数（UI 进度条数据源）；引擎事件通道（Electron IPC progress 事件）经 `ProgressThrottle` 50ms 节流（首条与末条必发，进度条能启动并到 100%；测试 `progress_throttle_drops_close_events_but_keeps_first_and_last`）。
 8. **只扫选中类别**（性能，2026-08-18）：打包内部经 `scanner.scanSelected` 只盘点选中类别——未选中类别零触碰（枚举/元数据/内容读取都不发生），自定义小档不为未选中大会话库付扫描成本；选中类别的 WAL 阻断仍生效（测试 `scanner_scan_selected_only_returns_selected_categories`、耗时锁 `packer_pack_time_ignores_unselected_categories`）。UI 盘点页的 `scan_assets` 仍是全类别含哈希（展示完整性基线），两者语义不同。

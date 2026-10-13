@@ -120,3 +120,72 @@
 |------|------|
 | 新机是否为 Windows？用户名是否相同？ | 同为 Windows 且用户名一致 → 几乎零适配；用户名不同 → 一次路径替换；换平台 → AGENTS.md 与技能规则需重写 |
 | 选择哪一档方案？ | 只在乎工作流和记忆选 A；要保留全部会话可查历史选 B |
+
+---
+
+## 七、2026-10-13 复勘（ZCode 档案 v2 的定性依据）
+
+> 本章为追加内容；一至六节是 2026-08-17 的原始勘察记录，保持原样。原记录中的体量、会话数、类别划分均为当时实测值，现势数字以本章为准（各自注明采集日期）。产品现状见 README；本章职责是记录"档案 v2 为什么这样划"的完整依据，供下次 ZCode 更新后复勘对照。
+
+### 7.1 背景：ZCode 已开源，官方存储目录清单成为定性权威
+
+ZCode 已开源（仓库 [zai-org/ZCode](https://github.com/zai-org/ZCode)）。其源码中的存储目录清单 `packages/services/src/storage/domain/storageCatalog.ts`——官方注释自称"存储分类目录：把 .zcode 根下的相对路径映射到类别、聚合 key 与可清理性。纯函数、单一事实源"——把全部存储路径划入 config（用户配置，不可清理）/ sessionStore（会话存储）/ runtimes（运行时）/ toolOutputs·logs·backups·exports 等可清理类别。
+
+AgentFerry 档案 v2（26 类别）的定性即以此清单为权威起点，叠加官方 Configuration Reference 与本机 2026-10-13 只读复勘核对：官方清单明确归类的按官方（如 `v2/*.json` 归 config、`v2/checkpoints` 归 sessionStore、`cli/plugins` 归 runtimes）；官方清单未覆盖的用户资产（根级 `hooks.json`、`mcp.json`、`openviking/` 等）以官方文档与本机实测定性。
+
+### 7.2 v1 → v2 类别对照（15 类 → 26 类）
+
+v1 定稿于 2026-08-17（推荐 8 + 完整 5 + 排除 2 类承载）；v2 于 2026-10-13 依官方清单升级（推荐 17 + 完整 7 + 排除 2 类承载）。
+
+**推荐档（8 → 17）**：原有 8 类全部保留（其中 plugin_manifests 的文件清单由 2 个增至 3 个，补 `icon-sources.json`）；新增 9 类：
+
+| 新类别 | 内容 | 增补依据 |
+|---|---|---|
+| hooks_config | `hooks.json`（记忆钩子配置） | ZCode 更新新增的用户资产（官方清单对其无专门规则，定性以官方文档与本机实测为准）；本机实测钩子命令含本机绝对路径 → 路径适配 |
+| mcp_config | `mcp.json`（用户级 MCP 服务器清单） | 官方 Configuration Reference 载明的用户级配置（官方清单对其无专门规则，以官方文档与本机实测为准） |
+| app_settings | `v2/setting.json`（语言、快捷键、最近项目等应用设置） | 官方列为任何类别下都不可删的保护文件；本机实测含本机路径 → 路径适配 |
+| provider_config | `v2/provider_config.json`（自定义模型服务商） | 官方归 config（`v2/*.json` 文件规则）；本机实测内嵌明文 API key → 照迁+点名字段警告（沿用凭据先例）+ 路径适配 |
+| bot_config | `v2/bot-config.v3.json` 与 `bot-config.json`（机器人配置） | 官方归 config（`v2/*.json` 文件规则） |
+| agents_state | `v2/agents-state.json`（代理启用/模型覆盖） | 官方归 config（`v2/*.json` 文件规则） |
+| openviking_state | `openviking/` 整目录（记忆库钩子接入配置与脚本） | 本机独有目录（官方清单无此目录）；内嵌 userKey 凭据 → 照迁+警告 |
+| user_scripts | 根目录 `vibe-autostart.cmd`、`register-vibe-autostart.ps1`（用户自建） | 本机实测存在的用户自建脚本（官方清单无专门规则） |
+| plugin_state | `cli/plugins/data/` 与 `cli/plugins/marketplaces/` | 官方将 cli/plugins 整体归 runtimes（不可清理）→ 插件数据与市场克隆照迁保证"完美复刻"；市场克隆体量约 8.7MB（2026-10-13 实测） |
+
+**完整档（5 → 7）**：原有 5 类（session_db、artifacts、rollout、tasks_index、v2_sessions）保留；新增 2 类——
+
+- **checkpoints**（`v2/checkpoints/`）：由 v1 的排除改入完整档。官方清单把它归 sessionStore（会话存储、不可清理），与"对话可以作为可选项迁移"的产品定位一致，不再是"可再生缓存"。
+- **visualizations**（`v2/visualizations/`）：会话可视化产物，属对话的一部分（spec 口径；官方清单对其无专门规则）。
+
+**排除（2 类承载，路径清单 7 → 25 项）**：credentials（登录凭据 `v2/credentials.json`）不变；caches 移出 v2/checkpoints 后增补 19 项——子代理执行现场（`cli/exec`、`cli/sessions`）、工作区草稿与临时区（`workspace`、`tmp`）、pdf 缓存（`cli/pdf-cache`）、v2 运行痕迹（`v2/agent-config`、`v2/repo-wiki`、`v2/runtime`）、安全材料（`v2/certs`，本机自签网络 CA 私钥，不外带）、`v2/bots-runtime-locks`、v2 根下状态/缓存 json（coding-plan-cache、bots-model-cache、telemetry-state、onboarding-record、bot-state×2）、feedback、export-log-stage、plugin-workspace。
+
+### 7.3 完整档体量提示
+
+会话主库 `cli/db/db.sqlite` 已由 2026-08 的 578MB 增至**约 4.3GB**（2026-10-13 实测，本机只读复勘 du 统计）：完整档选中该类别时，包体积与耗时会显著大于推荐档，属预期而非回归（打包向导既有体量展示已覆盖此提醒）。叠加 checkpoints（约 1GB，2026-08 实测）等类别后完整档总体量以向导实测展示为准。
+
+### 7.4 复刻边界（新机需自行完成的事）
+
+以下四件事在迁移包之外，解包后需用户在新机上自行完成：
+
+1. **OpenViking 本体需新机另装**：openviking_state 类别只迁 `~/.zcode/openviking/` 接入配置；OpenViking 本体（`~/.openviking/`，位于 ZCode 档案根之外）不随包迁移，新机未安装则记忆钩子报错。
+2. **钩子可能需一次信任确认**：ZCode 官方对钩子有 SHA-256 摘要信任机制，新机默认"待信任"，可能需执行一次 `zcode hooks trust` 确认后才运行；工具只提醒、不代办。
+3. **登录凭据需重登**：`v2/credentials.json`（`enc:v1:` 加密，绑定本机）永不入包，新机重新登录即可，账号与订阅数据在云端。
+4. **自定义数据目录需改目标根**：若 ZCode 配置了 dataBaseDir（自定义数据根目录），解包向导不会自动发现，需手动修改恢复目标根目录。
+
+### 7.5 官方存储目录全表（存档）
+
+> 来源：zai-org/ZCode 仓库 master 分支 `packages/services/src/storage/domain/storageCatalog.ts`（单一事实源）。采集日期 2026-10-13（spec 复勘定稿依据）；本表于 2026-10-14 文档交付时按 master 当前原文核对誊录。官方清单中 cli/models、workflows、security、mailbox 等目录本机不存在（多为新版本/特性目录），档案 v2 只收录实测过的目录，全表存档供下次复勘对照。
+
+| 官方类别（可清理性） | 覆盖目录 / 文件模式 |
+|---|---|
+| sessionStore（不可清理） | `v2/sessions`、`v2/session-bindings`、`v2/checkpoints`；`v2/*.sqlite(-wal/-shm)`、`cli/db/db.sqlite(-wal/-shm)` |
+| subagentTranscripts（仅 transcript 可删） | `cli/agents/<会话>/<子代理>/transcript.jsonl` |
+| toolOutputs（不可清理） | `cli/artifacts`、`cli/agents`、`cli/sessions`、`cli/exec`、`cli/image-cache`、`cli/pdf-cache`、`clipboard`、`git-checkpoint-index`、`editor-icon`、`tmp`、`cache`；`v2/checkpoints/**/(pending\|tmp)/`；`v2/coding-plan-cache.json`、`v2/bots-model-cache*.json` |
+| modelTrajectory（可清理） | `cli/debug`、`cli/rollout` |
+| devTraces（可清理） | `v2/dev`、`v2/acp-traffic-proxy`、`v2/acp-stream-diagnostics` |
+| logs（可清理） | `v2/logs`、`cli/log`、`logs`、`v2/crash`、`v2/perf`、`feedback/logs`；`computer-use/run/*.log` |
+| backups（清理需确认） | `backup`、`v2/backup`、`v2/migrations`、`cli/db/backup`、`cli/db/backups`；`cli/db/db.sqlite.*`、`cli/config.json.bak*`、`v2/*.bak`、`v2/*.backup.json`、`v2/setting.json.(corrupt-\|*backup*)`、`v2/config.json.pre-*` |
+| exports（可清理） | `export-log`、`export-log-stage`、`feedback` |
+| runtimes（不可清理） | `agents`、`bundled-agents`、`lite`、`computer-use`、`cli/plugins`（插件缓存归运行时） |
+| config（用户配置，不可清理） | 前缀：`v2/agent-config`、`v2/bots-runtime-locks`、`v2/bot-attachments`、`v2/certs`、`v2/acp-auth`、`v2/acp-config`、`v2/provider`、`cli/models`、`cli/memories`、`cli/workflows`、`security`、`commands`、`skills`、`workflows`、`workspace`、`mailbox`、`server`、`controller`、`launcher`、`dev-signing`、`cua-helper-dev-identity`、`perf-task-manifests`、`plugin-workspace`、`projects`；文件：`v2/*.json`、`cli/config.json`、`agents/*.md`、`AGENTS.md` |
+| other（兜底，不可清理） | 未命中以上规则的路径；含 `agent/`（ACP 时代残留）与"启用自定义数据目录后 home 根下 v2 旧副本" |
+| 受保护文件（任何类别不可删） | `setting.json`、`setting.json.lock`、`credentials.json`、`.credentials.json`、`.tokens`、`zcode-stdio-tap.json`、`v2/crash/live/` 前缀 |
