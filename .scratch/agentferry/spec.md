@@ -1,7 +1,7 @@
 # Spec：资产摆渡（AgentFerry）— agent 软件个人资产迁移工具
 
 - 日期：2026-08-17
-- 状态：已确认（决策由 decide 子智能体于 2026-08-17 做出，见"决策记录"节）
+- 状态：已替代（2026-10-14）——本 spec 为 2026-08-17 的 v1 基线（zcode/codex/claude 三档案定位），已被 `.scratch/zcode-v2/spec.md`（ZCode 档案 v2 与产品收窄为仅 ZCode）替代；正文保留原样不作改写，其架构描述以 `.rules/FEATURE_MAP.md` 与 README 现状为准。替代前的状态：已确认（决策由 decide 子智能体于 2026-08-17 做出，见"决策记录"节）
 - 上游研究：`ZCode迁移可行性研究.md`（根目录）
 - 决策记录全文：decide-k3 输出，9 项决策已固化到本 spec
 

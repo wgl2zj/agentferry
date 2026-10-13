@@ -1,7 +1,7 @@
 # Spec：ZCode 档案 v2 与产品收窄（专注 ZCode 配置备份/转移）
 
 - 日期：2026-10-13
-- 状态：已接受（2026-10-13 用户确认；实现完成后转「已实施」并附提交证据）
+- 状态：已实施（2026-10-13 用户确认接受；2026-10-14 三票实施完成——01 档案v2 提交 bf42b79、02 仅ZCode收窄+旧包兼容 98a5e3c、03 定位与复勘文档 24015b7，经三路审查与管理员终裁合并；全量回归由用户决定）
 - 调研依据：ZCode 官方开源仓库 zai-org/ZCode 的存储目录清单（packages/services/src/storage/domain/storageCatalog.ts，单一事实源）与官方 Configuration Reference；本机 `~/.zcode/` 2026-10-13 只读复勘
 - 上游文档：`ZCode迁移可行性研究.md`（本轮将追加复勘章节）；v1 基线 spec：`../agentferry/spec.md`（保持原样，仅加历史标注）
 
