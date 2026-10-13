@@ -6,8 +6,10 @@
 //
 // 契约红线：下方三份类别表（MOCK_ZCODE_CATEGORIES / MOCK_CODEX_CATEGORIES /
 // MOCK_CLAUDE_CATEGORIES）直接派生自引擎档案数据（electron/engine/profile/ 下
-// zcode.ts、codex.ts、claude.ts，单一事实来源，与主进程 list_profiles 输出同源），
-// 由 src/lib/profileContract.test.ts 锁定（含 token 警告文案逐字断言）。
+// zcode.ts、codex.ts、claude.ts，单一事实来源）。产品收窄（spec 决策 1）后：
+// zcode 表与主进程 list_profiles 输出同源（src/lib/profileContract.test.ts 锁定）；
+// codex/claude 表仅为旧迁移包解包的演示/测试保留（档案定义保留、旧包不作废），
+// 不进入前端档案选择与打包入口（MOCK_PROFILES 仅 zcode）。
 import { useEffect, useRef } from "react";
 import { codexProfile } from "../../electron/engine/profile/codex";
 import { claudeProfile } from "../../electron/engine/profile/claude";
@@ -90,8 +92,9 @@ const MOCK_PACKAGE = "D:\\迁移包\\zcode-迁移包-20260817.zam";
 // pickDirectory 演示返回 D:\迁移包，使「浏览→出现未保存修改」的演示闭环可复现。
 let mockSettings: Settings = { default_output_dir: "C:\\Users\\demo\\Downloads" };
 
-/** 引擎档案类别 → 前端展示形态（与主进程 list_profiles 的映射同源同构）。 */
-function toCategoryInfos(categories: AssetCategory[]): CategoryInfo[] {
+/** 引擎档案类别 → 前端展示形态（与主进程 list_profiles 的映射同源同构）。
+ *  导出供契约测试锁定派生一致性（mock 表 ↔ 引擎档案数据）。 */
+export function toCategoryInfos(categories: AssetCategory[]): CategoryInfo[] {
   return categories.map((c) => ({
     id: c.id,
     display_name: c.display_name,
@@ -129,16 +132,24 @@ interface MockProfileDef {
   categories: CategoryInfo[];
 }
 
-/** 三档案演示注册表：顺序即 list_profiles 返回顺序（zcode 为默认第一个）。 */
+/** 在产档案演示注册表（与后端注册中心同步收窄：仅 zcode；顺序即 list_profiles 返回顺序）。 */
 const MOCK_PROFILES: MockProfileDef[] = [
   { id: "zcode", display_name: "ZCode", version: 2, root: "C:\\Users\\demo\\.zcode", categories: MOCK_ZCODE_CATEGORIES },
+];
+
+/** 已知档案全量字典（在产 zcode + 仅旧包兼容的 codex/claude）。
+ *  与后端 legacyProfileById 对齐：唯一用途是按旧迁移包路径/包内档案 id 解析演示数据
+ *  （类别名、目标根推导）；不得加入 MOCK_PROFILES（前端档案选择与打包入口不出现 codex/claude）。 */
+const MOCK_KNOWN_PROFILES: MockProfileDef[] = [
+  ...MOCK_PROFILES,
   { id: "codex", display_name: "Codex", version: 1, root: "C:\\Users\\demo\\.codex", categories: MOCK_CODEX_CATEGORIES },
   { id: "claude", display_name: "Claude Code", version: 1, root: "C:\\Users\\demo\\.claude", categories: MOCK_CLAUDE_CATEGORIES },
 ];
 
-/** 按 id 取档案；未知 id 回退第一个（zcode），与后端未知档案报错不同——演示层保持宽容。 */
+/** 按 id 取已知档案（含旧包兼容的 codex/claude）；未知 id 回退第一个（zcode），
+ *  与后端未知档案报错不同——演示层保持宽容。 */
 function mockProfileById(id: string): MockProfileDef {
-  return MOCK_PROFILES.find((p) => p.id === id) ?? MOCK_PROFILES[0];
+  return MOCK_KNOWN_PROFILES.find((p) => p.id === id) ?? MOCK_KNOWN_PROFILES[0];
 }
 
 /** ZCode 默认根（演示主档案根目录的快捷别名）。 */
@@ -640,6 +651,15 @@ function mockRoute<T>(cmd: string, args: Record<string, unknown>): Promise<T> {
         ],
         () => mockManifest(profileId),
       ) as Promise<T>;
+    }
+
+    case COMMANDS.resolveTargetRoot: {
+      // 旧包兼容：与后端 resolveTargetRoot 对齐——按包内档案（含旧包 codex/claude）
+      // 从已知档案字典推导默认目标根；显式传入（非空）优先。
+      const explicit = (args.targetRoot as string | undefined)?.trim();
+      if (explicit) return delay(explicit as T);
+      const known = mockProfileById(profileIdFromPackagePath(args.path as string | undefined));
+      return delay(known.root as T);
     }
 
     case COMMANDS.planApply: {

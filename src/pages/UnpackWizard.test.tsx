@@ -172,7 +172,9 @@ describe("解包向导：dry-run 计划确认（第 4 步）", () => {
     expect(plan).toBeInTheDocument();
   });
 
-  it("打开 Codex 迁移包：类别名、包警告与恢复目标根目录全部按包内档案切换", async () => {
+  it("旧包兼容：打开旧版 Codex 迁移包——类别名、包警告与恢复目标根目录仍按包内档案切换", async () => {
+    // 产品收窄（spec 决策 1）后 codex 无打包入口，但旧版打出的迁移包不作废：
+    // 解包向导按包内档案解析类别中文名/token 警告，目标根推导为 ~/.codex。
     renderWizard();
     const input = await screen.findByLabelText("迁移包路径（.zam）");
     fireEvent.change(input, { target: { value: "D:\\迁移包\\codex-迁移包-20260817.zam" } });
@@ -183,16 +185,20 @@ describe("解包向导：dry-run 计划确认（第 4 步）", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "下一步：预览内容" }));
     const table = await screen.findByRole("table");
-    // 类别中文名按 codex 档案表解析（zcode 独有类别不出现）
-    expect(table).toHaveTextContent("主配置（config.toml）");
-    expect(table).toHaveTextContent("规则（rules/）");
+    // 类别名翻译降级（spec 决策 1：codex 档案仅保留给旧包目标根推导）：
+    // 预览分组按包内 manifest 类别走，与 zcode 同 id 的类别显示 zcode 描述，
+    // codex 独有类别（如 memories_db）回退显示原始 id——预览不报错、解包流程不阻断。
+    expect(table).toHaveTextContent("主配置（cli/config.json）");
+    expect(table).toHaveTextContent("memories_db");
+    // 表格内容来自包内 manifest，zcode 独有类别不得出现
     expect(table).not.toHaveTextContent("自定义命令");
 
     fireEvent.click(screen.getByRole("button", { name: "下一步：选择恢复模式" }));
-    // 恢复目标根目录按包内档案推导为 ~/.codex
+    // 恢复目标根目录按包内档案推导为 ~/.codex；提示文字标注"旧版档案"（不误显示回退的 ZCode 名）
     expect(await screen.findByLabelText("恢复目标目录")).toHaveValue(
       "C:\\Users\\demo\\.codex",
     );
+    expect(screen.getByText(/codex（旧版档案）/)).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "下一步：生成变更计划" }));
     await screen.findByText("冲突：保留目标");
     const planCall = vi

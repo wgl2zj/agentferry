@@ -1,4 +1,4 @@
-// 打包向导组件测试：步骤前进/回退流转 + 阻断类别横幅动作 + 多档案切换与 token 警告展示。
+// 打包向导组件测试：步骤前进/回退流转 + 阻断类别横幅动作 + 档案选择（仅 ZCode，产品收窄）与凭据警告展示。
 // jsdom 无桌面桥（window.agentferry），自动走内置 mock；apiCall 包一层 vi.fn 以便断言调用。
 import "@testing-library/jest-dom/vitest";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
@@ -116,94 +116,35 @@ describe("打包向导步骤流转", () => {
   });
 });
 
-describe("打包向导：多档案选择与切换", () => {
+describe("打包向导：档案选择（仅 ZCode，产品收窄）", () => {
   afterEach(() => cleanup());
   beforeEach(() => {
     vi.mocked(apiCall).mockClear();
     resetMockState();
   });
 
-  it("第 1 步档案选择器列出三家（zcode/codex/claude），默认选中第一个 ZCode", async () => {
+  it("第 1 步档案选择器仅 ZCode 一家，默认选中 ZCode（codex/claude 不出现）", async () => {
     renderWizard();
     // 先等档案卡出现（profiles 加载完成），再读选择器选项
     await screen.findByRole("heading", { name: /ZCode 资产档案/ });
     const select = (await screen.findByLabelText("资产档案")) as HTMLSelectElement;
     const options = within(select).getAllByRole("option");
-    expect(options.map((o) => o.textContent)).toEqual([
-      "ZCode（26 类）",
-      "Codex（15 类）",
-      "Claude Code（10 类）",
-    ]);
+    // 产品收窄（spec 决策 1）：打包入口只出现 ZCode 一个档案
+    expect(options.map((o) => o.textContent)).toEqual(["ZCode（26 类）"]);
     expect(select.value).toBe("zcode");
+    // 反向断言：codex/claude 不得作为可选软件出现
+    expect(options.some((o) => o.textContent?.includes("Codex"))).toBe(false);
+    expect(options.some((o) => o.textContent?.includes("Claude"))).toBe(false);
   });
 
-  it("切换为 Codex 后档案卡/默认根/盘点类别表跟随刷新，scan_assets 带所选 profileId", async () => {
+  it("建议输出文件名按档案动态生成（zcode-迁移包-日期.zam）", async () => {
     renderWizard();
-    const select = await screen.findByLabelText("资产档案");
     await screen.findByRole("heading", { name: /ZCode 资产档案/ });
-
-    fireEvent.change(select, { target: { value: "codex" } });
-    expect(
-      await screen.findByRole("heading", { name: /Codex 资产档案/ }),
-    ).toBeInTheDocument();
-    expect(screen.getByLabelText("资产根目录")).toHaveValue("C:\\Users\\demo\\.codex");
-
     fireEvent.click(screen.getByRole("button", { name: "下一步：扫描盘点" }));
-    await screen.findByText(/主配置（config.toml）/);
-    const table = screen.getByRole("table");
-    expect(table).toHaveTextContent("规则（rules/）");
-    expect(table).toHaveTextContent("记忆索引库");
-    // zcode 独有类别不得出现
-    expect(table).not.toHaveTextContent("自定义命令");
-    const scanCall = vi.mocked(apiCall).mock.calls.find((c) => c[0] === COMMANDS.scanAssets);
-    expect(scanCall?.[1]).toMatchObject({
-      profileId: "codex",
-      root: "C:\\Users\\demo\\.codex",
-    });
-  });
-
-  it("切换档案后建议输出文件名按档案动态生成（codex-迁移包-日期.zam）", async () => {
-    renderWizard();
-    const select = await screen.findByLabelText("资产档案");
-    await screen.findByRole("heading", { name: /ZCode 资产档案/ });
-    fireEvent.change(select, { target: { value: "codex" } });
-    fireEvent.click(screen.getByRole("button", { name: "下一步：扫描盘点" }));
-    await screen.findByText(/主配置（config.toml）/);
+    await screen.findByText(/全局规则/);
     fireEvent.click(screen.getByRole("button", { name: "下一步：选择档位与输出" }));
     const output = (await screen.findByLabelText("迁移包输出路径")) as HTMLInputElement;
-    expect(output.value).toMatch(/\/codex-迁移包-\d{8}\.zam$/);
-  });
-
-  it("Codex 推荐档选中 main_config：确认步骤展示与后端同源的 token 警告", async () => {
-    renderWizard();
-    const select = await screen.findByLabelText("资产档案");
-    await screen.findByRole("heading", { name: /ZCode 资产档案/ });
-    fireEvent.change(select, { target: { value: "codex" } });
-    fireEvent.click(screen.getByRole("button", { name: "下一步：扫描盘点" }));
-    await screen.findByText(/主配置（config.toml）/);
-    fireEvent.click(screen.getByRole("button", { name: "下一步：选择档位与输出" }));
-    expect(await screen.findByText("凭据随包迁移提醒")).toBeInTheDocument();
-    expect(
-      screen.getByText(
-        "本包含 API 凭据：config.toml 的 experimental_bearer_token 将随包迁移，请妥善保管迁移包",
-      ),
-    ).toBeInTheDocument();
-  });
-
-  it("Claude 推荐档选中 settings：确认步骤展示 ANTHROPIC_AUTH_TOKEN 警告", async () => {
-    renderWizard();
-    const select = await screen.findByLabelText("资产档案");
-    await screen.findByRole("heading", { name: /ZCode 资产档案/ });
-    fireEvent.change(select, { target: { value: "claude" } });
-    expect(screen.getByLabelText("资产根目录")).toHaveValue("C:\\Users\\demo\\.claude");
-    fireEvent.click(screen.getByRole("button", { name: "下一步：扫描盘点" }));
-    await screen.findByText(/核心设置（settings.json）/);
-    fireEvent.click(screen.getByRole("button", { name: "下一步：选择档位与输出" }));
-    expect(
-      await screen.findByText(
-        "本包含 API 凭据：settings.json 的 ANTHROPIC_AUTH_TOKEN 将随包迁移，请妥善保管迁移包",
-      ),
-    ).toBeInTheDocument();
+    expect(output.value).toMatch(/\/zcode-迁移包-\d{8}\.zam$/);
   });
 
   it("ZCode 推荐档含两个凭据类别，确认步骤出现点名具体字段的凭据横幅（v2）", async () => {

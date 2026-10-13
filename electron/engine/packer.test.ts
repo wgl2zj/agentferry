@@ -9,7 +9,7 @@ import path from "node:path";
 import { afterAll, expect, it } from "vitest";
 import { AppError } from "./error";
 import { pack, readManifest, type Manifest } from "./packer";
-import { builtinProfiles, profileById } from "./profile";
+import { builtinProfiles, legacyProfileById } from "./profile";
 import { categoryIdsForPreset } from "./profile/types";
 import { zcodeProfile } from "./profile/zcode";
 import { entryBuffer, openZip } from "./zipio";
@@ -304,7 +304,9 @@ it("packer_pack_warnings_enter_manifest：选中携带 pack_warning 的类别时
   ];
   for (const [profileId, dirPromise, ids] of cases) {
     const root = await dirPromise;
-    const profile = profileById(profileId)!;
+    // 产品收窄后 codex/claude 无打包入口；此处经已知档案全集取数据，
+    // 模拟"旧版打出的包"以继续锁定 packer 对多档案矩阵的引擎行为（警告入清单/排除不入包）。
+    const profile = legacyProfileById(profileId)!;
     const out = path.join(root, `${profileId}-包.zam`);
     await pack(profile, root, ids, "recommended", out, ["调用方警告"], APP_VERSION, () => {});
     const readback = await readManifest(out);
@@ -332,7 +334,7 @@ it("packer_zcode_warnings_unchanged_by_pack_warning：zcode 不选凭据类别�
 it("packer_none_pack_warning_adds_nothing：pack_warning=null 的类别不产生任何新增警告", async () => {
   const root = await makeFakeCodexTree();
   const out = path.join(root, "仅技能.zam");
-  const result = await pack(profileById("codex")!, root, ["skills"], "custom", out, [], APP_VERSION, () => {});
+  const result = await pack(legacyProfileById("codex")!, root, ["skills"], "custom", out, [], APP_VERSION, () => {});
   expect(result.manifest.warnings).toEqual([]);
 });
 
@@ -343,7 +345,8 @@ it("packer_new_profiles_excluded_never_enters_package：新档案排除项不入
   ];
   for (const [profileId, dirPromise, ids] of cases) {
     const root = await dirPromise;
-    const profile = profileById(profileId)!;
+    // 同上：经已知档案全集取 codex/claude 数据（旧包形态），锁定排除项不入包的引擎行为。
+    const profile = legacyProfileById(profileId)!;
     const out = path.join(root, `${profileId}-排除验.zam`);
     const result = await pack(profile, root, ids, "full", out, [], APP_VERSION, () => {});
     for (const forbidden of ["auth.json", "logs_2", "config.json", ".last-cleanup", "primaryApiKey"]) {

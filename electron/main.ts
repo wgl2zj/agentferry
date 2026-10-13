@@ -93,6 +93,9 @@ function registerCommands(): void {
   handle(COMMANDS.openPackage, (args) =>
     commands.openPackageCmd(str(args.path), bridge(emitProgress, "open", "verifying")),
   );
+  handle(COMMANDS.resolveTargetRoot, (args) =>
+    commands.resolveTargetRoot(str(args.path), optStr(args.targetRoot)),
+  );
   handle(COMMANDS.planApply, (args) => {
     const rawMode = str(args.mode);
     if (rawMode !== "overwrite" && rawMode !== "incremental") {

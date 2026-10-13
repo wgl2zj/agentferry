@@ -12,10 +12,11 @@ import {
   loadSettingsFrom,
   resolveTargetRoot,
   saveSettingsTo,
+  scanAssets,
   settingsPathIn,
 } from "../commands";
 import { pack } from "./packer";
-import { homeDir, profileById } from "./profile";
+import { homeDir, legacyProfileById, profileById } from "./profile";
 import { AppError } from "./error";
 
 const APP_VERSION = "0.1.6";
@@ -36,7 +37,9 @@ async function tempDir(): Promise<string> {
 describe("commands_list_profiles_returns_full_category_table", () => {
   it("契约守护：list_profiles 返回完整类别表，id/档位/策略与档案一致", () => {
     const profiles = listProfiles();
-    expect(profiles).toHaveLength(3);
+    // 产品收窄（spec 决策 1）：注册中心仅返回 zcode 一个档案
+    expect(profiles).toHaveLength(1);
+    expect(profiles.map((p) => p.id)).toEqual(["zcode"]);
 
     const zcode = profiles[0];
     expect(zcode.id).toBe("zcode");
@@ -88,51 +91,50 @@ describe("commands_list_profiles_returns_full_category_table", () => {
       expect(c.display_name).not.toBe("");
     }
 
-    // Codex 档案：类别数、档位/策略定性、token 警告透传、默认根
-    const codex = profiles[1];
-    expect(codex.id).toBe("codex");
-    expect(codex.categories).toHaveLength(15);
-    const cget = (id: string) => codex.categories.find((c) => c.id === id)!;
-    expect(cget("main_config").strategy).toBe("copy_text_path_adapt");
-    expect(cget("main_config").pack_warning).toBe(
-      "本包含 API 凭据：config.toml 的 experimental_bearer_token 将随包迁移，请妥善保管迁移包",
-    );
-    expect(cget("session_index").strategy).toBe("copy_text_path_adapt");
-    expect(cget("memories_db").strategy).toBe("sqlite");
-    expect(cget("sessions").tier).toBe("full");
-    expect(cget("credentials").strategy).toBe("excluded");
-    expect(cget("credentials").tier).toBe("excluded");
-    expect(codex.categories.filter((c) => c.id !== "main_config").every((c) => c.pack_warning === null)).toBe(true);
+    // 反向断言（产品收窄）：codex/claude 不得出现在档案列表命令——档案选择与打包入口仅 ZCode；
+    // 其档案定义保留在数据模块（契约由 profile.test.ts 直测数据模块承接），仅供旧包解包推导。
+    expect(profiles.some((p) => p.id === "codex" || p.id === "claude")).toBe(false);
+  });
 
-    // Claude 档案：类别数、策略定性、token 警告透传、无 SQLite 类别
-    const claude = profiles[2];
-    expect(claude.id).toBe("claude");
-    expect(claude.categories).toHaveLength(10);
-    const lget = (id: string) => claude.categories.find((c) => c.id === id)!;
-    expect(lget("settings").strategy).toBe("copy_text_path_adapt");
-    expect(lget("settings").pack_warning).toBe(
-      "本包含 API 凭据：settings.json 的 ANTHROPIC_AUTH_TOKEN 将随包迁移，请妥善保管迁移包",
-    );
-    expect(lget("config").tier).toBe("excluded");
-    expect(lget("projects").tier).toBe("full");
-    expect(claude.categories.some((c) => c.strategy === "sqlite")).toBe(false);
-    expect(claude.categories.filter((c) => c.id !== "settings").every((c) => c.pack_warning === null)).toBe(true);
+  it("反向：codex/claude 无打包入口——scan_assets/pack_assets 层直接拒绝（旧档案仅供旧包解包推导）", async () => {
+    const root = await tempDir();
+    // requireProfile 走在产档案清单（仅 zcode），codex/claude 一律报 path_setup，
+    // 防止注册中心将来被改回全量导致打包入口复活
+    await expect(scanAssets("codex", root)).rejects.toMatchObject({ code: "path_setup" });
+    await expect(scanAssets("claude", root)).rejects.toMatchObject({ code: "path_setup" });
+    expect(profileById("codex")).toBeNull();
+    expect(profileById("claude")).toBeNull();
+    // 对照：在产档案 zcode 可正常解析；旧包字典仍含全量（解包侧依赖）
+    expect(profileById("zcode")?.id).toBe("zcode");
+    expect(legacyProfileById("codex")?.id).toBe("codex");
+    expect(legacyProfileById("claude")?.id).toBe("claude");
   });
 });
 
-it("commands_resolve_target_root_derives_codex_home：codex/claude 包缺省目标 = 本机对应家目录", async () => {
+it("commands_resolve_target_root_derives_zcode_home：zcode 包缺省目标 = 本机 ~/.zcode（唯一在产档案）", async () => {
+  const root = await tempDir();
+  fs.mkdirSync(path.join(root, "skills"), { recursive: true });
+  fs.writeFileSync(path.join(root, "skills", "SKILL.md"), "技能");
+  const out = path.join(root, "zcode-包.zam");
+  await pack(profileByIdOrThrow("zcode"), root, ["skills"], "custom", out, [], APP_VERSION, () => {});
+  expect(await resolveTargetRoot(out, undefined)).toBe(path.join(homeDir(), ".zcode"));
+});
+
+it("commands_resolve_target_root_derives_codex_home_legacy_package：旧包兼容——codex/claude 旧包缺省目标仍 = 本机对应家目录", async () => {
+  // 旧包模拟：用旧版注册形态（已知档案全集）打出的包。收窄后 codex/claude 无打包入口，
+  // 此处直接经 legacyProfileById 取档案数据构造"历史上打出的包"，验证解包推导不被收窄破坏。
   {
     const root = await tempDir();
     fs.writeFileSync(path.join(root, "config.toml"), "x = 1\n");
     const out = path.join(root, "codex-包.zam");
-    await pack(profileByIdOrThrow("codex"), root, ["main_config"], "custom", out, [], APP_VERSION, () => {});
+    await pack(legacyProfileOrThrow("codex"), root, ["main_config"], "custom", out, [], APP_VERSION, () => {});
     expect(await resolveTargetRoot(out, undefined)).toBe(path.join(homeDir(), ".codex"));
   }
   {
     const root = await tempDir();
     fs.writeFileSync(path.join(root, "settings.json"), "{}");
     const out = path.join(root, "claude-包.zam");
-    await pack(profileByIdOrThrow("claude"), root, ["settings"], "custom", out, [], APP_VERSION, () => {});
+    await pack(legacyProfileOrThrow("claude"), root, ["settings"], "custom", out, [], APP_VERSION, () => {});
     expect(await resolveTargetRoot(out, undefined)).toBe(path.join(homeDir(), ".claude"));
   }
 });
@@ -169,6 +171,12 @@ it("load/save settings：读写 userData 下 settings.json，往返一致", asyn
 
 function profileByIdOrThrow(id: string) {
   const p = profileById(id);
+  if (!p) throw new AppError("path_setup", `未知档案：${id}`);
+  return p;
+}
+
+function legacyProfileOrThrow(id: string) {
+  const p = legacyProfileById(id);
   if (!p) throw new AppError("path_setup", `未知档案：${id}`);
   return p;
 }

@@ -21,7 +21,13 @@ import {
   type DetectResult,
   type PathFixReport,
 } from "./engine/pathfix";
-import { builtinProfiles, defaultRoot, homeDir, profileById } from "./engine/profile";
+import {
+  builtinProfiles,
+  defaultRoot,
+  homeDir,
+  legacyProfileById,
+  profileById,
+} from "./engine/profile";
 import { strategyStr, tierStr, type Profile } from "./engine/profile/types";
 import type { ProgressFn } from "./engine/progress";
 import { scan, type ScanReport } from "./engine/scanner";
@@ -89,14 +95,15 @@ export function openPackageCmd(packagePath: string, progress: ProgressFn) {
 }
 
 /** 解包目标根目录解析：显式传入（非空）优先；否则读包内档案推导该软件的本机资产目录
- *  （如 ZCode → `~/.zcode`）。真实试用事故修复：此前目标固定为包旁 `-restored` 目录，
- *  导致"解包成功但 ZCode 无变化"。 */
+ *  （如 ZCode → `~/.zcode`）。档案查找走已知档案全集（含仅旧包兼容的 codex/claude，
+ *  spec 决策 1：旧迁移包不作废，目标根按包内档案正确推导）。真实试用事故修复：此前
+ *  目标固定为包旁 `-restored` 目录，导致"解包成功但 ZCode 无变化"。 */
 export async function resolveTargetRoot(packagePath: string, targetRoot?: string): Promise<string> {
   if (targetRoot !== undefined && targetRoot.trim().length > 0) {
     return targetRoot.trim();
   }
   const manifest = await readManifest(packagePath);
-  const profile = profileById(manifest.profile_id);
+  const profile = legacyProfileById(manifest.profile_id);
   if (!profile) {
     throw new AppError("invalid_package", `未知档案：${manifest.profile_id}`);
   }

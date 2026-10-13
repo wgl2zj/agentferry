@@ -150,7 +150,7 @@ describe("序列化契约", () => {
       const c = z.categories.find((x) => x.id === id);
       expect(c?.strategy.kind).toBe("CopyTextNeedsPathAdapt");
       expect(c?.rule.type).toBe("File");
-      expect(kindOf(c.rule.type === "File" ? c.rule.rel : "")).toBe("text");
+      expect(kindOf(c?.rule.type === "File" ? c.rule.rel : "")).toBe("text");
     }
   });
 });

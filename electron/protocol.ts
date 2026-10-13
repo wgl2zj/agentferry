@@ -8,6 +8,7 @@ export const COMMANDS = {
   scanAssets: "scan_assets",
   packAssets: "pack_assets",
   openPackage: "open_package",
+  resolveTargetRoot: "resolve_target_root",
   planApply: "plan_apply",
   executeApply: "execute_apply",
   detectPathMappings: "detect_path_mappings",

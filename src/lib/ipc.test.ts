@@ -16,6 +16,7 @@ describe("IPC 命令名一致性", () => {
       "scan_assets",
       "pack_assets",
       "open_package",
+      "resolve_target_root",
       "plan_apply",
       "execute_apply",
       "detect_path_mappings",

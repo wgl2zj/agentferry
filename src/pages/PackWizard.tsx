@@ -31,7 +31,8 @@ import {
 
 const STEPS = ["选择档案", "盘点结果", "档位与输出", "执行打包"];
 
-/** 建议文件名按档案动态生成：`<档案id>-迁移包-<日期>.zam`（档案 id 即 zcode/codex/claude 小写形式）。 */
+/** 建议文件名按档案动态生成：`<档案id>-迁移包-<日期>.zam`（在产档案仅 zcode；
+ *  旧 codex/claude 包的 `<id>-迁移包-<日期>.zam` 命名由解包向导按包内档案识别，与此处无关）。 */
 function suggestedFileName(profileId: string): string {
   const d = new Date();
   const ymd = `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, "0")}${String(

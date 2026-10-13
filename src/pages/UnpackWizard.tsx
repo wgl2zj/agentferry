@@ -56,8 +56,6 @@ export function UnpackWizard(props: { onExit: () => void }) {
 
   // 档案清单（类别中文名与默认根目录的唯一数据源；具体跟随哪个档案由包内 profile_id 决定）
   const [profiles, setProfiles] = useState<ProfileSummary[] | null>(null);
-  const profilesRef = useRef<ProfileSummary[] | null>(null);
-  profilesRef.current = profiles;
 
   // 第 1 步：选包与校验
   const [pkgPath, setPkgPath] = useState("");
@@ -124,7 +122,9 @@ export function UnpackWizard(props: { onExit: () => void }) {
     };
   }, []);
 
-  /** 包内档案：manifest 打开后按 profile_id 定位；未打开时回退列表第一个（仅用于预填默认值）。 */
+  /** 类别名翻译用的档案：manifest 打开后按 profile_id 定位；旧包档案（codex/claude，
+   *  产品收窄后不在 list_profiles）回退列表第一个——同名类别按 zcode 描述、独有类别
+   *  显示原始 id（显示降级不影响解包；目标根推导已改走 resolve_target_root 命令）。 */
   const pkgProfile = useMemo(() => {
     if (!profiles || profiles.length === 0) return null;
     return profiles.find((p) => p.id === manifest?.profile_id) ?? profiles[0];
@@ -132,6 +132,14 @@ export function UnpackWizard(props: { onExit: () => void }) {
 
   /** 档案类别表（类别中文名的唯一数据源）：跟随包内档案。 */
   const categoryTable = useMemo(() => pkgProfile?.categories ?? [], [pkgProfile]);
+
+  /** 目标根提示用的档案名：在产档案用展示名；旧包档案（不在 list_profiles，
+   *  产品收窄后 codex/claude）标注"旧版"，避免误显示回退档案的名字。 */
+  const pkgProfileLabel = useMemo(() => {
+    if (!manifest) return "…";
+    const inList = profiles?.some((p) => p.id === manifest.profile_id);
+    return inList ? (pkgProfile?.display_name ?? "…") : `${manifest.profile_id}（旧版档案）`;
+  }, [manifest, profiles, pkgProfile]);
 
   /** 弹系统文件选择框选 .zam 迁移包；取消不改动，选中后仍需手动点「打开并校验」。 */
   const browsePackage = async () => {
@@ -147,12 +155,17 @@ export function UnpackWizard(props: { onExit: () => void }) {
     apiCall<Manifest>(COMMANDS.openPackage, { path: pkgPath.trim() })
       .then((m) => {
         setManifest(m);
-        // 解包目标默认按包内档案推导为本机资产根目录（如 ~/.codex）；用户手动改过则不覆盖
-        const prof = profilesRef.current?.find((p) => p.id === m.profile_id);
-        if (prof) {
-          setTargetRoot((prev) =>
-            targetDirtyRef.current && prev.trim() ? prev : prof.default_root,
-          );
+        // 解包目标默认按包内档案推导为本机资产根目录（如 ~/.codex）。产品收窄后
+        // list_profiles 仅含 zcode，codex/claude 旧包的目标根改由后端
+        // resolve_target_root 按已知档案全集推导（旧包兼容）；用户手动改过则不覆盖。
+        if (!targetDirtyRef.current) {
+          apiCall<string>(COMMANDS.resolveTargetRoot, { path: pkgPath.trim() })
+            .then((root) => {
+              setTargetRoot((prev) =>
+                targetDirtyRef.current && prev.trim() ? prev : root,
+              );
+            })
+            .catch(() => undefined);
         }
       })
       .catch((e: unknown) =>
@@ -545,7 +558,7 @@ export function UnpackWizard(props: { onExit: () => void }) {
                 </button>
               </div>
               <p className="field-hint" id="unpack-target-root-hint">
-                资产会恢复到这里。默认取包内档案（{pkgProfile?.display_name ?? "…"}
+                资产会恢复到这里。默认取包内档案（{pkgProfileLabel}
                 ）在本机的资产根目录，确认无误即可，一般无需修改。
               </p>
             </div>
