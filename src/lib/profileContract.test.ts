@@ -20,8 +20,13 @@ describe("档案契约守护（list_profiles ↔ mock 类别表，同源引擎�
     expect(MOCK_CLAUDE_CATEGORIES).toEqual(profiles[2].categories);
   });
 
-  it("类别数：zcode 15 / codex 15 / claude 10（与引擎档案锁定一致）", () => {
-    expect(MOCK_ZCODE_CATEGORIES).toHaveLength(15);
+  it("类别数：zcode 26 / codex 15 / claude 10（与引擎档案锁定一致；zcode v2 = 推荐 17 + 完整 7 + 排除 2）", () => {
+    expect(MOCK_ZCODE_CATEGORIES).toHaveLength(26);
+    expect(
+      MOCK_ZCODE_CATEGORIES.filter((c) => c.tier === "recommended"),
+    ).toHaveLength(17);
+    expect(MOCK_ZCODE_CATEGORIES.filter((c) => c.tier === "full")).toHaveLength(7);
+    expect(MOCK_ZCODE_CATEGORIES.filter((c) => c.tier === "excluded")).toHaveLength(2);
     expect(MOCK_CODEX_CATEGORIES).toHaveLength(15);
     expect(MOCK_CLAUDE_CATEGORIES).toHaveLength(10);
   });
@@ -54,7 +59,20 @@ describe("token 警告文案防线（JSON 序列化漂移哨兵）", () => {
     ).toBe(true);
   });
 
-  it("zcode 全部类别无 pack_warning（回归锁：zcode warnings 行为零变化）", () => {
-    expect(MOCK_ZCODE_CATEGORIES.every((x) => x.pack_warning === null)).toBe(true);
+  it("zcode 仅两个凭据类别携带 pack_warning 且文案逐字一致（v2 起接入；其余类别零警告）", () => {
+    const provider = MOCK_ZCODE_CATEGORIES.find((x) => x.id === "provider_config");
+    expect(provider?.pack_warning).toBe(
+      "本包含 API 凭据：v2/provider_config.json 的 access.apiKey（嵌套字段）将随包迁移，请妥善保管迁移包",
+    );
+    const openviking = MOCK_ZCODE_CATEGORIES.find((x) => x.id === "openviking_state");
+    expect(openviking?.pack_warning).toBe(
+      "本包含 API 凭据：openviking/ 配置的 userKey 将随包迁移，请妥善保管迁移包",
+    );
+    // 回归锁（v2 形态）：除这两类外全部类别无警告——不选它们时 warnings 行为零变化
+    expect(
+      MOCK_ZCODE_CATEGORIES.filter(
+        (x) => x.id !== "provider_config" && x.id !== "openviking_state",
+      ).every((x) => x.pack_warning === null),
+    ).toBe(true);
   });
 });

@@ -226,7 +226,8 @@ describe("解包向导：路径适配在执行之后（第 6 步）", () => {
 
     // 进入第 6 步：路径适配
     const pathfixBtn = await screen.findByRole("button", { name: /下一步：路径适配/ });
-    expect(pathfixBtn).toHaveTextContent("2 个文件需要");
+    // v2：推荐档新增 hooks/app_settings/provider_config 三个路径适配类别 → 2 变 5 个待适配文件
+    expect(pathfixBtn).toHaveTextContent("5 个文件需要");
     fireEvent.click(pathfixBtn);
 
     const table = await screen.findByRole("table", { name: "路径替换建议清单" });

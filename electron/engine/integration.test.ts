@@ -50,7 +50,11 @@ it("integration_pack_move_incremental_pathfix_journey：打包→换机→增量
   const pkg = path.join(oldRoot, "ferry/换机包.zam");
   const warnings = ["会话历史库检测到 WAL，用户选择跳过"];
   const packResult = await pack(profile, oldRoot, selected, "full", pkg, warnings, APP_VERSION, () => {});
-  expect(packResult.manifest.warnings).toHaveLength(1);
+  // v2：Full 档含 provider_config/openviking_state → 凭据警告按选中顺序追加（spec 决策 4）
+  expect(packResult.manifest.warnings).toHaveLength(3);
+  expect(packResult.manifest.warnings[0]).toBe(warnings[0]);
+  expect(packResult.manifest.warnings[1]).toContain("access.apiKey");
+  expect(packResult.manifest.warnings[2]).toContain("userKey");
 
   // ---- 新机：目标已有部分旧文件（含一个内容不同的冲突文件）----
   const newMachine = await tempDir();

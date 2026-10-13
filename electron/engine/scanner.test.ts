@@ -60,16 +60,48 @@ async function makeFakeTree(): Promise<string> {
   fs.mkdirSync(path.join(root, "cli/plugins"), { recursive: true });
   fs.writeFileSync(path.join(root, "cli/plugins/installed_plugins.json"), "[]");
   fs.writeFileSync(path.join(root, "cli/plugins/known_marketplaces.json"), "[]");
+  fs.writeFileSync(path.join(root, "cli/plugins/icon-sources.json"), "{}");
+  // v2 新推荐类别（假文件名对齐本机实测；凭据一律用占位串，真实密钥不进测试）
+  fs.writeFileSync(path.join(root, "hooks.json"), String.raw`{"hooks":[{"run":"node C:\\Users\\old\\hook.mjs"}]}`);
+  fs.writeFileSync(path.join(root, "mcp.json"), String.raw`{"servers":{"nas":{"url":"http://127.0.0.1:9630/mcp"}}}`);
+  fs.writeFileSync(path.join(root, "v2/setting.json"), String.raw`{"recent":["C:\\Users\\old\\proj"]}`);
+  fs.writeFileSync(path.join(root, "v2/provider_config.json"), String.raw`{"providers":[{"access":{"apiKey":"PLACEHOLDER-KEY"}}]}`);
+  fs.writeFileSync(path.join(root, "v2/bot-config.v3.json"), "{}");
+  fs.writeFileSync(path.join(root, "v2/bot-config.json"), "{}");
+  fs.writeFileSync(path.join(root, "v2/agents-state.json"), "{}");
+  fs.mkdirSync(path.join(root, "openviking/state"), { recursive: true });
+  fs.writeFileSync(path.join(root, "openviking/config.json"), '{"userKey":"PLACEHOLDER-USERKEY"}');
+  fs.writeFileSync(path.join(root, "openviking/ov-recall.mjs"), "// 占位脚本\n");
+  fs.writeFileSync(path.join(root, "vibe-autostart.cmd"), "@echo off\n");
+  fs.writeFileSync(path.join(root, "register-vibe-autostart.ps1"), "# 注册自启\n");
+  fs.mkdirSync(path.join(root, "cli/plugins/data/imgutil"), { recursive: true });
+  fs.writeFileSync(path.join(root, "cli/plugins/data/imgutil/state.json"), "{}");
+  fs.mkdirSync(path.join(root, "cli/plugins/marketplaces/official"), { recursive: true });
+  fs.writeFileSync(path.join(root, "cli/plugins/marketplaces/official/clone.json"), "{}");
   // 会话库 + WAL（触发阻断）
   fs.mkdirSync(path.join(root, "cli/db"), { recursive: true });
   fs.writeFileSync(path.join(root, "cli/db/db.sqlite"), "sqlite-bytes-0123456789");
   fs.writeFileSync(path.join(root, "cli/db/db.sqlite-wal"), "wal");
   // 任务索引（无 WAL，Ready）
   fs.writeFileSync(path.join(root, "v2/tasks-index.sqlite"), "idx-bytes");
-  // 排除项
+  // 完整档新成员（对话可选项）
+  fs.mkdirSync(path.join(root, "v2/checkpoints/sess-1"), { recursive: true });
+  fs.writeFileSync(path.join(root, "v2/checkpoints/sess-1/cp-0001.json"), '{"checkpoint":1}');
+  fs.mkdirSync(path.join(root, "v2/visualizations/sess-1"), { recursive: true });
+  fs.writeFileSync(path.join(root, "v2/visualizations/sess-1/graph.svg"), "<svg/>");
+  // 排除项：凭据 + v1 原有缓存
   fs.writeFileSync(path.join(root, "v2/credentials.json"), "enc:v1:xxx");
   fs.mkdirSync(path.join(root, "cli/log"), { recursive: true });
   fs.writeFileSync(path.join(root, "cli/log/run.log"), "日志".repeat(1000));
+  // 排除项：caches 增补路径（运行痕迹/状态 json/CA 私钥，均不入包）
+  fs.mkdirSync(path.join(root, "cli/exec"), { recursive: true });
+  fs.writeFileSync(path.join(root, "cli/exec/task-001.json"), "{}");
+  fs.writeFileSync(path.join(root, "v2/bot-state.v2.json"), "{}");
+  fs.writeFileSync(path.join(root, "v2/telemetry-state.json"), "{}");
+  fs.mkdirSync(path.join(root, "v2/certs"), { recursive: true });
+  fs.writeFileSync(path.join(root, "v2/certs/ca-key.pem"), "PLACEHOLDER-PRIVATE-KEY");
+  fs.mkdirSync(path.join(root, "workspace/default"), { recursive: true });
+  fs.writeFileSync(path.join(root, "workspace/default/draft.md"), "草稿");
   return root;
 }
 
@@ -111,6 +143,15 @@ describe("序列化契约", () => {
         }
       }
     }
+    // E4 扩展覆盖：v2 三个新路径适配类别（hooks/app_settings/provider_config）必须实际命中上面的遍历
+    //（若日后被改成非 File 规则，此处先行失败，防止遍历锁静默漏覆盖）
+    const z = zcodeProfile();
+    for (const id of ["hooks_config", "app_settings", "provider_config"]) {
+      const c = z.categories.find((x) => x.id === id);
+      expect(c?.strategy.kind).toBe("CopyTextNeedsPathAdapt");
+      expect(c?.rule.type).toBe("File");
+      expect(kindOf(c.rule.type === "File" ? c.rule.rel : "")).toBe("text");
+    }
   });
 });
 
@@ -127,11 +168,29 @@ describe("scanner_categorizes_fake_tree（盘点归类）", () => {
     expect(get("skills").files[0].kind).toBe("text");
     expect(get("skills").files[0].sha256).not.toBe("");
 
-    // 插件清单 Many 规则收集 2 个文件
-    expect(get("plugin_manifests").files).toHaveLength(2);
+    // 插件清单 Many 规则收集 3 个文件（v2 起含 icon-sources.json）
+    expect(get("plugin_manifests").files).toHaveLength(3);
 
     // config 归类为 Text
     expect(get("main_config").files[0].kind).toBe("text");
+
+    // v2 新推荐类别：盘点 ready、文件数与 kind 正确（E2 盘点段）
+    expect(get("hooks_config").files).toHaveLength(1);
+    expect(get("hooks_config").files[0].kind).toBe("text");
+    expect(get("mcp_config").files).toHaveLength(1);
+    expect(get("app_settings").files).toHaveLength(1);
+    expect(get("provider_config").files).toHaveLength(1);
+    expect(get("provider_config").files[0].kind).toBe("text");
+    expect(get("bot_config").files).toHaveLength(2);
+    expect(get("agents_state").files).toHaveLength(1);
+    expect(get("openviking_state").files).toHaveLength(2);
+    expect(get("user_scripts").files).toHaveLength(2);
+    expect(get("user_scripts").files.every((f) => f.kind === "binary")).toBe(true);
+    expect(get("plugin_state").files).toHaveLength(2);
+
+    // 完整档新成员（检查点/可视化）可盘点
+    expect(get("checkpoints").files).toHaveLength(1);
+    expect(get("visualizations").files).toHaveLength(1);
 
     // WAL 存在 → 会话库阻断
     expect(get("session_db").status).toEqual({ status: "blocked", detail: expect.stringContaining("db.sqlite-wal") });
@@ -144,6 +203,14 @@ describe("scanner_categorizes_fake_tree（盘点归类）", () => {
     expect(cred.files[0].sha256).toBe("");
     expect(cred.status).toEqual({ status: "ready" });
     expect(get("caches").total_bytes).toBeGreaterThan(0);
+    // E6：caches 增补路径（exec/工作区/CA 私钥/状态 json）同样计入体量且绝不哈希内容
+    const cacheRels = get("caches").files.map((f) => f.rel_path);
+    for (const extra of ["cli/exec/task-001.json", "v2/bot-state.v2.json", "v2/telemetry-state.json", "v2/certs/ca-key.pem", "workspace/default/draft.md"]) {
+      expect(cacheRels, `caches 增补路径未盘点：${extra}`).toContain(extra);
+    }
+    expect(get("caches").files.every((f) => f.sha256 === "")).toBe(true);
+    // v2/checkpoints 已由排除改入完整档：不再计入 caches 体量
+    expect(cacheRels.some((r) => r.startsWith("v2/checkpoints/"))).toBe(false);
   });
 });
 

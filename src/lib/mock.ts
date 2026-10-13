@@ -131,7 +131,7 @@ interface MockProfileDef {
 
 /** 三档案演示注册表：顺序即 list_profiles 返回顺序（zcode 为默认第一个）。 */
 const MOCK_PROFILES: MockProfileDef[] = [
-  { id: "zcode", display_name: "ZCode", version: 1, root: "C:\\Users\\demo\\.zcode", categories: MOCK_ZCODE_CATEGORIES },
+  { id: "zcode", display_name: "ZCode", version: 2, root: "C:\\Users\\demo\\.zcode", categories: MOCK_ZCODE_CATEGORIES },
   { id: "codex", display_name: "Codex", version: 1, root: "C:\\Users\\demo\\.codex", categories: MOCK_CODEX_CATEGORIES },
   { id: "claude", display_name: "Claude Code", version: 1, root: "C:\\Users\\demo\\.claude", categories: MOCK_CLAUDE_CATEGORIES },
 ];
@@ -190,17 +190,30 @@ const DEMO_FILES: Record<string, Record<string, ScannedFile[]>> = {
     main_config: makeFiles(["cli/config.json"], 1, 18_000),
     v2_config: makeFiles(["v2/config.json"], 1, 9_000),
     plugin_manifests: makeFiles(
-      ["cli/plugins/installed_plugins.json", "cli/plugins/known_marketplaces.json"],
-      2,
+      ["cli/plugins/installed_plugins.json", "cli/plugins/known_marketplaces.json", "cli/plugins/icon-sources.json"],
+      3,
       4_000,
     ),
+    // v2 新推荐类别（演示体量；凭据字段只做占位演示，不写实值）
+    hooks_config: makeFiles(["hooks.json"], 1, 5_000),
+    mcp_config: makeFiles(["mcp.json"], 1, 6_000),
+    app_settings: makeFiles(["v2/setting.json"], 1, 8_000),
+    provider_config: makeFiles(["v2/provider_config.json"], 1, 7_000),
+    bot_config: makeFiles(["v2/bot-config.v3.json", "v2/bot-config.json"], 2, 4_000),
+    agents_state: makeFiles(["v2/agents-state.json"], 1, 2_000),
+    openviking_state: makeFiles(["openviking/config.json", "openviking/ov-recall.mjs"], 2, 9_000),
+    user_scripts: makeFiles(["vibe-autostart.cmd", "register-vibe-autostart.ps1"], 2, 1_000, "binary"),
+    plugin_state: makeFiles(["cli/plugins/data/imgutil/state.json", "cli/plugins/marketplaces/official/clone.json"], 2, 8_700_000),
+    // 完整档新成员（对话可选项）
+    checkpoints: makeFiles(Array(3).fill(null), 3, 340_000_000, "binary", "v2/checkpoints"),
+    visualizations: makeFiles(Array(2).fill(null), 2, 1_200_000, "binary", "v2/visualizations"),
     artifacts: makeFiles(Array(12).fill(null), 12, 80_000, "binary", "cli/artifacts"),
     rollout: makeFiles(Array(6).fill(null), 6, 150_000, "text", "cli/rollout"),
     v2_sessions: makeFiles(Array(4).fill(null), 4, 60_000, "text", "v2/sessions"),
     credentials: makeFiles(["v2/credentials.json"], 1, 2_000),
     caches: makeFiles(
-      ["v2/logs/app.log", "v2/checkpoints/cp-01.json", "cli/log/cli.log", "cli/image-cache/img-01.bin"],
-      4,
+      ["v2/logs/app.log", "v2/runtime/app.bin", "cli/log/cli.log", "cli/image-cache/img-01.bin", "workspace/default/draft.md", "v2/certs/ca-key.pem"],
+      6,
       700_000_000,
       "binary",
     ),
@@ -287,7 +300,7 @@ function buildScan(profileId: string, sessionReady: boolean): ScanReport {
   }
   return {
     profile_id: "zcode",
-    profile_version: 1,
+    profile_version: 2,
     root: MOCK_ROOT,
     categories: [
       readyCat("global_rules"),
@@ -298,6 +311,16 @@ function buildScan(profileId: string, sessionReady: boolean): ScanReport {
       readyCat("main_config"),
       readyCat("v2_config"),
       readyCat("plugin_manifests"),
+      // v2 新推荐类别（演示盘点与引擎档案 26 类对齐）
+      readyCat("hooks_config"),
+      readyCat("mcp_config"),
+      readyCat("app_settings"),
+      readyCat("provider_config"),
+      readyCat("bot_config"),
+      readyCat("agents_state"),
+      readyCat("openviking_state"),
+      readyCat("user_scripts"),
+      readyCat("plugin_state"),
       sessionReady
         ? {
             category_id: "session_db",
@@ -339,6 +362,9 @@ function buildScan(profileId: string, sessionReady: boolean): ScanReport {
         total_bytes: 0,
       },
       readyCat("v2_sessions"),
+      // 完整档新成员（对话可选项）
+      readyCat("checkpoints"),
+      readyCat("visualizations"),
       readyCat("credentials"),
       readyCat("caches"),
     ],

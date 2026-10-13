@@ -40,12 +40,19 @@ describe("commands_list_profiles_returns_full_category_table", () => {
 
     const zcode = profiles[0];
     expect(zcode.id).toBe("zcode");
-    expect(zcode.categories).toHaveLength(15);
+    // v2 契约（spec 实施决策第 3 条）：26 类别 = 推荐档 17 + 完整档 7 + 排除 2 类承载
+    expect(zcode.categories).toHaveLength(26);
+    expect(zcode.categories.filter((c) => c.tier === "recommended")).toHaveLength(17);
+    expect(zcode.categories.filter((c) => c.tier === "full")).toHaveLength(7);
+    expect(zcode.categories.filter((c) => c.tier === "excluded")).toHaveLength(2);
     const ids = zcode.categories.map((c) => c.id);
     for (const must of [
       "global_rules", "skills", "commands", "agent_defs", "memories",
       "main_config", "v2_config", "plugin_manifests",
+      "hooks_config", "mcp_config", "app_settings", "provider_config", "bot_config",
+      "agents_state", "openviking_state", "user_scripts", "plugin_state",
       "session_db", "artifacts", "rollout", "tasks_index", "v2_sessions",
+      "checkpoints", "visualizations",
       "credentials", "caches",
     ]) {
       expect(ids).toContain(must);
@@ -55,8 +62,27 @@ describe("commands_list_profiles_returns_full_category_table", () => {
     expect(get("session_db").tier).toBe("full");
     expect(get("session_db").strategy).toBe("sqlite");
     expect(get("main_config").strategy).toBe("copy_text_path_adapt");
+    // E4：三个新类别（hooks/应用设置/服务商）同样需要路径适配
+    expect(get("hooks_config").strategy).toBe("copy_text_path_adapt");
+    expect(get("app_settings").strategy).toBe("copy_text_path_adapt");
+    expect(get("provider_config").strategy).toBe("copy_text_path_adapt");
+    // E5：检查点/可视化归完整档
+    expect(get("checkpoints").tier).toBe("full");
+    expect(get("visualizations").tier).toBe("full");
     expect(get("credentials").tier).toBe("excluded");
     expect(get("caches").strategy).toBe("excluded");
+    // E3：凭据类别警告透传（点名具体字段），其余类别无警告
+    expect(get("provider_config").pack_warning).toBe(
+      "本包含 API 凭据：v2/provider_config.json 的 access.apiKey（嵌套字段）将随包迁移，请妥善保管迁移包",
+    );
+    expect(get("openviking_state").pack_warning).toBe(
+      "本包含 API 凭据：openviking/ 配置的 userKey 将随包迁移，请妥善保管迁移包",
+    );
+    expect(
+      zcode.categories
+        .filter((c) => c.id !== "provider_config" && c.id !== "openviking_state")
+        .every((c) => c.pack_warning === null),
+    ).toBe(true);
     // 展示名非空且中文（UI 不显示内部 id）
     for (const c of zcode.categories) {
       expect(c.display_name).not.toBe("");

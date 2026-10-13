@@ -52,13 +52,43 @@ async function makeFakeTree(): Promise<string> {
   fs.writeFileSync(path.join(root, "skills/animate/SKILL.md"), "技能内容".repeat(10));
   fs.mkdirSync(path.join(root, "cli"), { recursive: true });
   fs.writeFileSync(path.join(root, "cli/config.json"), String.raw`{"mcp":"C:\\Users\\old\\py.exe"}`);
+  fs.mkdirSync(path.join(root, "cli/plugins/data/imgutil"), { recursive: true });
+  fs.writeFileSync(path.join(root, "cli/plugins/installed_plugins.json"), "[]");
+  fs.writeFileSync(path.join(root, "cli/plugins/icon-sources.json"), "{}");
+  fs.writeFileSync(path.join(root, "cli/plugins/data/imgutil/state.json"), "{}");
   fs.mkdirSync(path.join(root, "cli/db"), { recursive: true });
   fs.writeFileSync(path.join(root, "cli/db/db.sqlite"), "sqlite-bytes-0123456789");
   fs.writeFileSync(path.join(root, "cli/db/db.sqlite-wal"), "wal");
   fs.mkdirSync(path.join(root, "v2"), { recursive: true });
+  // v2 新推荐类别（占位凭据串，不进任何真实密钥）
+  fs.writeFileSync(path.join(root, "hooks.json"), String.raw`{"hooks":[{"run":"node C:\\Users\\old\\hook.mjs"}]}`);
+  fs.writeFileSync(path.join(root, "mcp.json"), '{"servers":{}}');
+  fs.writeFileSync(path.join(root, "v2/setting.json"), String.raw`{"recent":["C:\\Users\\old\\proj"]}`);
+  fs.writeFileSync(path.join(root, "v2/provider_config.json"), String.raw`{"providers":[{"access":{"apiKey":"PLACEHOLDER-KEY"}}]}`);
+  fs.writeFileSync(path.join(root, "v2/bot-config.v3.json"), "{}");
+  fs.writeFileSync(path.join(root, "v2/agents-state.json"), "{}");
+  fs.mkdirSync(path.join(root, "openviking"), { recursive: true });
+  fs.writeFileSync(path.join(root, "openviking/config.json"), '{"userKey":"PLACEHOLDER-USERKEY"}');
+  fs.writeFileSync(path.join(root, "vibe-autostart.cmd"), "@echo off\n");
+  fs.writeFileSync(path.join(root, "register-vibe-autostart.ps1"), "# 注册自启\n");
+  // 完整档新成员
+  fs.mkdirSync(path.join(root, "v2/checkpoints/sess-1"), { recursive: true });
+  fs.writeFileSync(path.join(root, "v2/checkpoints/sess-1/cp-0001.json"), '{"checkpoint":1}');
+  fs.mkdirSync(path.join(root, "v2/visualizations/sess-1"), { recursive: true });
+  fs.writeFileSync(path.join(root, "v2/visualizations/sess-1/graph.svg"), "<svg/>");
+  // 排除项：凭据 + v1 缓存 + caches 增补路径
   fs.writeFileSync(path.join(root, "v2/credentials.json"), "enc:v1:secret");
   fs.mkdirSync(path.join(root, "cli/log"), { recursive: true });
   fs.writeFileSync(path.join(root, "cli/log/run.log"), "日志".repeat(100));
+  fs.mkdirSync(path.join(root, "cli/exec"), { recursive: true });
+  fs.writeFileSync(path.join(root, "cli/exec/task-001.json"), "{}");
+  fs.writeFileSync(path.join(root, "v2/bot-state.v2.json"), "{}");
+  fs.writeFileSync(path.join(root, "v2/bot-state.v3.json"), "{}");
+  fs.mkdirSync(path.join(root, "v2/certs"), { recursive: true });
+  fs.writeFileSync(path.join(root, "v2/certs/ca-key.pem"), "PLACEHOLDER-PRIVATE-KEY");
+  fs.mkdirSync(path.join(root, "workspace/default"), { recursive: true });
+  fs.writeFileSync(path.join(root, "workspace/default/draft.md"), "草稿");
+  fs.writeFileSync(path.join(root, "v2/onboarding-record.json"), "{}");
   return root;
 }
 
@@ -143,16 +173,63 @@ it("packer_excluded_never_enters_package：反向测试，排除项（凭据/缓
   const allPaths = result.manifest.files.map((f) => f.target_rel);
   expect(allPaths.some((p) => p.includes("credentials"))).toBe(false);
   expect(allPaths.some((p) => p.includes("log/") || p.includes("image-cache"))).toBe(false);
+  // E6：caches 增补路径（运行痕迹/状态 json/CA 私钥）不入清单
+  expect(allPaths.some((p) => p.includes("bot-state") || p.includes("onboarding-record"))).toBe(false);
   // 物理读取包内全部条目名再核验一次
   const opened = await openZip(out, "包损坏");
   try {
     for (const name of opened.entries.keys()) {
       expect(name.includes("credentials"), `凭据泄漏进包：${name}`).toBe(false);
       expect(name.includes("cli/log/"), `缓存泄漏进包：${name}`).toBe(false);
+      // E6 双重核验：增补排除路径物理不入包
+      expect(name.includes("cli/exec/"), `运行痕迹泄漏进包：${name}`).toBe(false);
+      expect(name.includes("v2/certs/"), `CA 私钥泄漏进包：${name}`).toBe(false);
+      expect(name.includes("workspace/"), `默认工作区泄漏进包：${name}`).toBe(false);
+      expect(name.includes("bot-state"), `状态缓存泄漏进包：${name}`).toBe(false);
     }
   } finally {
     opened.close();
   }
+});
+
+it("packer_v2_new_categories_enter_package_with_hashes：v2 新推荐类别入包并逐文件哈希复验（E2）", async () => {
+  const root = await makeFakeTree();
+  const newIds = [
+    "hooks_config", "mcp_config", "app_settings", "provider_config", "bot_config",
+    "agents_state", "openviking_state", "user_scripts", "plugin_state",
+  ];
+  // 完整档新成员一并验证：Custom 勾选可携带（E5 打包面）
+  const ids = [...newIds, "checkpoints", "visualizations"];
+  const out = path.join(root, "v2-新类.zam");
+  await pack(zcodeProfile(), root, ids, "custom", out, [], APP_VERSION, () => {});
+
+  const manifest = await readManifest(out);
+  const covered = new Set(manifest.files.map((f) => f.category));
+  for (const id of ids) {
+    expect(covered.has(id), `类别 ${id} 未入包`).toBe(true);
+  }
+  // 逐文件哈希复验：包内读回内容重算哈希 == manifest 记录；路径适配标记按类别策略落位
+  const opened = await openZip(out, "包损坏");
+  try {
+    for (const mf of manifest.files) {
+      const entry = opened.entries.get(mf.path);
+      expect(entry, `包内缺少 ${mf.path}`).toBeDefined();
+      const bytes = await entryBuffer(opened.zip, entry!);
+      expect(sha256Hex(bytes), `${mf.target_rel} 哈希不符`).toBe(mf.sha256);
+      const adaptIds = new Set(["hooks_config", "app_settings", "provider_config"]);
+      expect(mf.needs_path_adapt).toBe(adaptIds.has(mf.category));
+    }
+  } finally {
+    opened.close();
+  }
+  // 具体文件抽验：凭据占位字段原样入包（照迁）、检查点/可视化条目存在
+  const rels = manifest.files.map((f) => f.target_rel);
+  expect(rels).toContain("v2/provider_config.json");
+  expect(rels).toContain("openviking/config.json");
+  expect(rels.some((r) => r.startsWith("v2/checkpoints/"))).toBe(true);
+  expect(rels.some((r) => r.startsWith("v2/visualizations/"))).toBe(true);
+  const providerBytes = await readEntry(out, "payload/v2/provider_config.json");
+  expect(providerBytes.toString("utf8")).toContain("PLACEHOLDER-KEY");
 });
 
 it("packer_blocked_sqlite_rejected_and_skippable：WAL 库被选中 → 拒绝；跳过后可打包且警告入清单", async () => {
@@ -175,8 +252,11 @@ it("packer_blocked_sqlite_rejected_and_skippable：WAL 库被选中 → 拒绝�
     APP_VERSION,
     () => {},
   );
-  expect(result.manifest.warnings).toHaveLength(1);
+  expect(result.manifest.warnings).toHaveLength(3);
   expect(result.manifest.warnings[0]).toContain("跳过");
+  // v2：Full 档含 provider_config/openviking_state → 凭据警告按选中顺序追加（spec 决策 4）
+  expect(result.manifest.warnings[1]).toContain("access.apiKey");
+  expect(result.manifest.warnings[2]).toContain("userKey");
   const readback = await readManifest(out);
   expect(readback.files.some((f) => f.category === "session_db")).toBe(false);
 });
@@ -218,6 +298,7 @@ async function makeFakeClaudeTree(): Promise<string> {
 
 it("packer_pack_warnings_enter_manifest：选中携带 pack_warning 的类别时其确切字符串入清单（调用方警告在前）", async () => {
   const cases: [string, Promise<string>, string[]][] = [
+    ["zcode", makeFakeTree(), ["skills", "provider_config", "openviking_state"]],
     ["codex", makeFakeCodexTree(), ["global_rules", "main_config"]],
     ["claude", makeFakeClaudeTree(), ["settings", "skills"]],
   ];
@@ -238,11 +319,13 @@ it("packer_pack_warnings_enter_manifest：选中携带 pack_warning 的类别时
   }
 });
 
-it("packer_zcode_warnings_unchanged_by_pack_warning：zcode 档案无 pack_warning → warnings 与传入逐字节一致", async () => {
+it("packer_zcode_warnings_unchanged_by_pack_warning：zcode 不选凭据类别时 warnings 与传入逐字节一致（回归锁，E3）", async () => {
   const root = await makeFakeTree();
   const out = path.join(root, "回归.zam");
   const passedIn = ["用户跳过说明"];
-  const result = await pack(zcodeProfile(), root, recommendedIds(), "recommended", out, passedIn, APP_VERSION, () => {});
+  // v2 起 provider_config/openviking_state 携带凭据警告；不选它们 → 警告行为与 v1 零变化
+  const ids = recommendedIds().filter((id) => id !== "provider_config" && id !== "openviking_state");
+  const result = await pack(zcodeProfile(), root, ids, "custom", out, passedIn, APP_VERSION, () => {});
   expect(result.manifest.warnings).toEqual(passedIn);
 });
 

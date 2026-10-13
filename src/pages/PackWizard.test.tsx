@@ -130,7 +130,7 @@ describe("打包向导：多档案选择与切换", () => {
     const select = (await screen.findByLabelText("资产档案")) as HTMLSelectElement;
     const options = within(select).getAllByRole("option");
     expect(options.map((o) => o.textContent)).toEqual([
-      "ZCode（15 类）",
+      "ZCode（26 类）",
       "Codex（15 类）",
       "Claude Code（10 类）",
     ]);
@@ -206,13 +206,22 @@ describe("打包向导：多档案选择与切换", () => {
     ).toBeInTheDocument();
   });
 
-  it("ZCode 推荐档无携带 pack_warning 的类别，确认步骤不出现凭据横幅", async () => {
+  it("ZCode 推荐档含两个凭据类别，确认步骤出现点名具体字段的凭据横幅（v2）", async () => {
     renderWizard();
     await screen.findByRole("heading", { name: /ZCode 资产档案/ });
     fireEvent.click(screen.getByRole("button", { name: "下一步：扫描盘点" }));
     await screen.findByText(/全局规则/);
     fireEvent.click(screen.getByRole("button", { name: "下一步：选择档位与输出" }));
     await screen.findByText("推荐（纯资产）");
-    expect(screen.queryByText("凭据随包迁移提醒")).not.toBeInTheDocument();
+    // v2：推荐档自动包含 provider_config/openviking_state → 凭据横幅点名具体字段（与后端同源）
+    expect(await screen.findByText("凭据随包迁移提醒")).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "本包含 API 凭据：v2/provider_config.json 的 access.apiKey（嵌套字段）将随包迁移，请妥善保管迁移包",
+      ),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("本包含 API 凭据：openviking/ 配置的 userKey 将随包迁移，请妥善保管迁移包"),
+    ).toBeInTheDocument();
   });
 });
