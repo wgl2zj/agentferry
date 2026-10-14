@@ -14,6 +14,7 @@ ZCode 配置备份与转移工具：在老机器上把 ZCode 的个人资产（�
 npm install            # 全部依赖
 npm run dev:electron   # 桌面应用开发模式（vite + electron 联动）
 npm run build          # 前端构建 + 主进程/预加载打包
+npm run build:installer # 一键产出 Windows 安装包（release/AgentFerry-Setup-<版本>.exe，产物不入库；下载镜像见 .npmrc 与 build.electronDownload，首次构建需联网约 200MB）
 npm test               # 全部 vitest（引擎 + 前端）
 ```
 

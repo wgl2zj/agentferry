@@ -3,6 +3,7 @@ node_modules/
 dist/
 dist-ssr/
 dist-electron/
+release/
 *.local
 
 # 日志与系统缓存

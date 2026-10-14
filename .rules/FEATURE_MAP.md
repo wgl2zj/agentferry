@@ -230,3 +230,32 @@
 1. **首用默认**：无 settings.json 时，家目录下存在 `Downloads` 目录则作为默认输出目录，否则空（测试 `commands_default_output_dir_requires_existing_downloads` 锁定；不凭空造目录）。
 2. **目录选择弹窗**：设置页与打包向导的「浏览…」弹系统目录选择框（Electron dialog），取消不改动；选中后设置页直接回填、打包向导拼回建议文件名。解包向导第 1 步「浏览…」弹系统文件选择框（仅 .zam 过滤），取消不改动。浏览器演示模式无系统对话框，pickDirectory/pickPackage 返回演示路径。
 3. **保存**：写入 app_config_dir/settings.json；打包向导输出路径用该目录预填（空目录时只预填文件名）。
+
+## 构建与分发（installer）
+
+**主代码**：`package.json`（build 配置与 `build:installer` 命令）、`.npmrc`（打包工具链下载镜像）
+**模型/数据**：electron-builder 配置（NSIS x64）；产物 `release/AgentFerry-Setup-<package.json 版本>.exe`
+**关联决策**：行为预期清单（2026-10-14 用户确认）；VERSION_HISTORY v0.2.0
+
+### 一句话定位
+把源码与构建产物变成可分发安装包；新机器双击安装即得完整功能，分发不再依赖源码环境。
+
+### 用户入口
+| 入口 | 能做什么 |
+|---|---|
+| `npm run build:installer` | 一键构建并产出 Windows 安装包到 release/（产物不入库） |
+
+### 行为预期（可验证，已逐条核实代码与实跑）
+1. **产物形态**：`release/AgentFerry-Setup-<版本>.exe`，NSIS x64 单击安装（per-user，无需管理员），默认 Electron 图标（测试 `packaging_config_contract_locks_installer_shape` 锁定 artifactName 模板与 nsis x64 目标；2026-10-14 实跑产出 107MB 安装包）。
+2. **打包范围**：files 显式锁定 dist/、dist-electron/ 与 package.json；生产依赖（yauzl/yazl 及传递依赖）由 electron-builder 自动打入 app.asar（2026-10-14 审查实拆 asar 核实，约 8MB——主进程另有 esbuild 预打包，两处并存功能自洽）（测试锁定 files 清单）。
+3. **下载镜像固化**：Electron 本体走 `build.electronDownload.mirror`、打包工具链走 `.npmrc` 的 npmmirror 镜像——国内网络 GitHub 直连拉不动（2026-10-14 实测：直连三次超时、镜像一次通过；镜像下载的缓存裸跑不认，故镜像必须进配置而非临时变量）（测试锁定 mirror 非空）。
+4. **产物不入库**：release/ 在 .gitignore（测试锁定）。
+5. **包内功能自洽**：免安装版（release/win-unpacked）启动存活冒烟通过（2026-10-14 实测双进程存活）；本机冒烟不等于新机安装验收，后者由用户执行。
+
+### 已知待修问题（发现但暂不动代码）
+- **1. 首次构建需联网且 7zip 引导工具集不在镜像上**：electron-builder v26 的 `7zip@1.0.0` 工具集 npmmirror 未收录，只能从 GitHub 拉（约 480KB，慢但 curl 实测可得）；本机已缓存于 `%LOCALAPPDATA%\electron-builder\Cache\`，新机首构若卡在此步，按 README 镜像说明手动预置。暂不处理（仅影响新机首次构建，非产品功能）。
+- **2. .npmrc 环境变量注入带 npm 废弃警告**：npm 已对"把非 registry 配置注入为脚本环境变量"发废弃警告，未来大版本可能不再注入——届时打包工具链镜像需改用系统级环境变量或其它方案。暂观察（当前 npm 版本实测注入正常）。
+
+### 反直觉/易误解（踩坑预警）
+- `npm run build`（开发构建，只更新 dist/）与 `npm run build:installer`（出安装包，内含前者）是两回事；产物未变化不代表安装包未变化。
+- 构建缓存的键含下载 URL：镜像与 GitHub 的缓存互不通用，切换镜像来源会触发重新下载。

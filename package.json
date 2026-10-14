@@ -1,7 +1,9 @@
 {
   "name": "agentferry",
   "private": true,
-  "version": "0.1.6",
+  "version": "0.2.0",
+  "description": "ZCode 配置备份与转移工具",
+  "author": "wgl2zj",
   "type": "module",
   "main": "dist-electron/main.cjs",
   "scripts": {
@@ -9,6 +11,7 @@
     "dev:electron": "node scripts/dev-electron.mjs",
     "build": "tsc && vite build && npm run build:electron",
     "build:electron": "node scripts/build-electron.mjs",
+    "build:installer": "npm run build && electron-builder --win nsis",
     "typecheck:electron": "tsc -p electron/tsconfig.json",
     "preview": "vite preview",
     "test": "vitest run",
@@ -30,10 +33,22 @@
     "@types/yazl": "^3.3.1",
     "@vitejs/plugin-react": "^4.6.0",
     "electron": "^44.2.0",
+    "electron-builder": "^26.15.3",
     "esbuild": "^0.28.2",
     "jsdom": "^26.1.0",
     "typescript": "~5.8.3",
     "vite": "^7.0.4",
     "vitest": "^3.2.4"
+  },
+  "build": {
+    "appId": "com.wgl2zj.agentferry",
+    "productName": "AgentFerry",
+    "directories": { "output": "release" },
+    "files": ["dist/**/*", "dist-electron/**/*", "package.json"],
+    "electronDownload": { "mirror": "https://npmmirror.com/mirrors/electron/" },
+    "win": {
+      "target": [{ "target": "nsis", "arch": ["x64"] }],
+      "artifactName": "AgentFerry-Setup-${version}.exe"
+    }
   }
 }
