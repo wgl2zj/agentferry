@@ -21,7 +21,7 @@
 | 2026-10-13 | ZCode 档案 v2：类别 15→26（新增 9 类复刻必需配置、内嵌凭据字段点名警告、checkpoints/会话可视化入完整档、运行痕迹排除增补） | 提交 `bf42b79` |
 | 2026-10-13 | 产品收窄为仅 ZCode：注册中心单档案；codex/claude 档案定义保留，旧迁移包仍可解包（目标根推导兼容） | 提交 `98a5e3c` |
 | 2026-10-14 | 定位与复勘文档：README 改写、可行性研究复勘章节、功能地图档案条目同步、v1 spec 加"已替代"标注 | 提交 `24015b7` |
-| 2026-10-14 | 安装包链路建立：electron-builder（NSIS x64）+ `build:installer` 一键命令，产物 `release/`（不入库）；配置契约由 electron/packaging.test.ts 锁定 | feat/installer 合并提交（`git log --grep 安装包链路`） |
+| 2026-10-14 | 安装包链路建立：electron-builder（NSIS x64）+ `build:installer` 一键命令，产物 `release/`（不入库）；配置契约由 electron/packaging.test.ts 锁定 | 提交 `439ab83` |
 
 ## 说明
 
